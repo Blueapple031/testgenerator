@@ -1,0 +1,72 @@
+---
+description: FastAPI 백엔드 컨벤션 - 라우터, 서비스, 모델, 인프라 계층 구조
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# FastAPI 백엔드 컨벤션
+
+## 계층 구조
+
+```
+routers/   → HTTP 요청 수신, 스키마 검증, 서비스 호출
+services/  → 비즈니스 로직, 다른 서비스·인프라 조합
+workers/   → 비동기 백그라운드 태스크 (문서 인덱싱, 시험 생성)
+models/    → SQLAlchemy ORM 모델 (pgvector 포함)
+schemas/   → Pydantic 요청·응답 스키마
+infra/     → 외부 시스템 연동 (MinIO, LLM, OCR, embedding)
+```
+
+라우터에 비즈니스 로직을 넣지 않는다. 반드시 서비스 계층을 거친다.
+
+## 비동기 패턴
+
+- DB 쿼리: `sqlalchemy` + `asyncpg` (async session)
+- 외부 API: `httpx.AsyncClient`
+- 파일 저장: `boto3` (MinIO, 동기이므로 `run_in_executor` 사용)
+- 무거운 Job(인덱싱, 문제 생성)은 `workers/`에 비동기 태스크로 분리
+
+## SSE 스트리밍
+
+Job 진행 상태는 `StreamingResponse`로 SSE 스트리밍한다.
+
+```python
+from fastapi.responses import StreamingResponse
+
+async def stream_job_status(job_id: str):
+    async def event_generator():
+        while True:
+            status = await get_job_status(job_id)
+            yield f"data: {status.json()}\n\n"
+            if status.stage == "COMPLETED":
+                break
+            await asyncio.sleep(1)
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+```
+
+## 임베딩 분기
+
+`EMBEDDING_PROVIDER` 환경변수로 로컬/OpenAI 전환. `embedding_client.py`에서 분기 처리.
+
+## 주요 서비스
+
+| 서비스 | 역할 |
+|---|---|
+| document_service | PDF 업로드, 목차 파싱 |
+| extraction_service | PyMuPDF 텍스트 추출 |
+| chunk_service | 페이지·문단 기준 chunking |
+| embedding_service | 임베딩 생성 (로컬 or OpenAI) |
+| rag_service | pgvector 검색 + reranker |
+| exam_style_service | 족보 → 출제 스타일 프로필 분석 |
+| exam_generation_service | LLM 문제 생성 (스타일 프로필 반영) |
+| latex_pdf_service | JSON → LaTeX → xelatex → PDF |
+| learning_service | 규칙 기반 취약 개념 분석 |
+| kt_service | 규칙 기반 숙련도, BKT, pyKT 실험 |
+
+## 풀이 이력 분석 및 KT 구현 원칙
+
+- MVP에서는 Knowledge Tracing을 전면 기능으로 내세우지 않고 규칙 기반 취약 개념 분석을 먼저 구현한다: 정답률, 풀이 시간, 최근성 가중치를 조합한다.
+- 풀이 중 이벤트는 `question_interaction`에 저장하고, 최종 제출은 `user_answer`에 저장한다.
+- `kt_service`는 개념별 mastery, weak concepts, 다음 문제 정답 확률을 반환한다.
+- 확장 순서: 규칙 기반 → BKT → pyKT(DKT/DKVMN/AKT/SAKT) 실험.
+- KT 결과는 `exam_generation_service`의 개인화 문제 생성 조건에 주입한다.

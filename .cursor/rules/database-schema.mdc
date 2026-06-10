@@ -1,0 +1,50 @@
+---
+description: PostgreSQL + pgvector DB 스키마 컨벤션 - 테이블, Job 상태, 벡터 검색
+globs: backend/**/models/**/*.py, backend/**/alembic/**/*.py
+alwaysApply: false
+---
+
+# DB 스키마 컨벤션
+
+## 주요 테이블
+
+| 테이블 | 역할 |
+|---|---|
+| users | 사용자 정보 |
+| workspace | 과목별·학기별 워크스페이스 |
+| study_document | 문서 메타 (type: `lecture` / `past_exam`) |
+| document_toc | PDF 목차 (시험 범위 선택용) |
+| exam_style_profile | 족보 분석 결과: 유형·난이도·Bloom 분포 |
+| document_chunk | chunk 본문, 페이지, embedding (pgvector) |
+| exam_generation_job | 비동기 생성 Job |
+| generated_exam | 시험 메타 + PDF 위치 |
+| generated_question | 문제·답안·해설·출처 (수정 이력) |
+| question_concept | 문제-개념 다대다 연결 |
+| user_answer | 풀이 기록 (response_time 포함) |
+| question_interaction | 풀이 이벤트 로그 (시작, 제출, 힌트, 답 변경, 이탈) |
+| user_concept_mastery | 개념별 숙련도 (규칙 기반/BKT 결과) |
+| kt_model_snapshot | BKT/pyKT 모델 버전 및 파라미터 |
+| kt_prediction | 문항·개념별 다음 정답 확률 예측 |
+
+## Job 상태 머신
+
+문서: `UPLOADED → EXTRACTING → INDEXING → READY` (실패 시 `FAILED`)
+시험: `PENDING → GENERATING → RENDERING → COMPLETED` (실패 시 `FAILED`)
+
+## 벡터 검색
+
+- `document_chunk.embedding` 컬럼에 pgvector 타입 사용
+- cosine similarity로 검색: `ORDER BY embedding <=> query_vector LIMIT topK`
+- 모든 데이터는 `user_id` 기준으로 격리
+
+## 풀이 이력 및 KT 데이터 원칙
+
+- `user_answer`는 최종 제출 결과, `question_interaction`은 풀이 중 이벤트 로그를 저장한다.
+- `user_concept_mastery`는 concept별 최신 숙련도 캐시이며, 원본 이벤트에서 재계산 가능해야 한다.
+- MVP는 규칙 기반 mastery를 저장한다.
+- 1차 고도화에서 BKT 결과를 저장하고, 2차 고도화에서 pyKT 결과를 provider/version과 함께 저장한다.
+
+## 마이그레이션
+
+- Alembic 사용 (`backend/alembic/`)
+- 모델 변경 시 `alembic revision --autogenerate -m "설명"` → `alembic upgrade head`

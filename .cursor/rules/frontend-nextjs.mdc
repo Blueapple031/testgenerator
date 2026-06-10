@@ -1,0 +1,54 @@
+---
+description: Next.js 프론트엔드 컨벤션 - 페이지 구조, 컴포넌트, 훅, PWA
+globs: frontend/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Next.js 프론트엔드 컨벤션
+
+## App Router 페이지 구조
+
+```
+app/login/              # 세션 로그인
+app/workspaces/         # 과목별 워크스페이스
+app/documents/          # 문서 목록 (강의자료·족보 구분)
+app/exams/generate/     # 생성 옵션 (시험 범위 선택 + 족보 스타일 토글)
+app/exams/[examId]/     # 미리보기·편집
+app/solve/[examId]/     # 온라인 풀이 (타이머)
+app/results/[examId]/   # 결과 분석
+```
+
+## 핵심 컴포넌트
+
+- `PdfUploadForm` / `PastExamUploadForm`: 드래그 앤 드롭, 강의자료와 족보 구분
+- `ExamStyleToggle`: 족보 스타일 반영 ON/OFF 토글 + 프로필 선택 드롭다운
+- `ChapterRangeSelector`: PDF 목차 기반 체크박스 트리로 시험 범위 선택
+- `QuestionEditor`: 생성 문제 개별 수정·삭제·재생성
+- `QuestionSolver` + `TimerDisplay`: Web Worker 기반 풀이 타이머
+- `ProgressStream`: SSE `useSSE` 훅으로 실시간 진행 상태
+- `WeakConceptChart` / `MasteryDashboard`: KT 기반 취약 개념과 개념별 숙련도 표시
+
+## 커스텀 훅
+
+- `useTimer`: Web Worker 기반, 백그라운드 탭에서도 정확한 시간 측정
+- `useSSE`: EventSource 연결 관리, 자동 재연결
+- `usePageVisibility`: 탭 이탈 감지 (Page Visibility API)
+
+## Knowledge Tracing UI
+
+- 풀이 화면은 시작/답 변경/힌트/제출/탭 이탈 이벤트를 백엔드에 기록한다.
+- 결과 화면은 정오답뿐 아니라 개념별 숙련도, 풀이 시간, 추천 복습 순서를 보여준다.
+- 개인화 생성 화면에서는 KT 기반 추천 옵션(취약 개념 중심, Bloom 비율 추천)을 표시한다.
+
+## 백엔드 API 연동
+
+- 기본 경로: `/api/` (Nginx에서 FastAPI로 프록시)
+- 인증: 세션 쿠키 또는 JWT
+- 파일 업로드: multipart/form-data, `type` 필드로 lecture/past_exam 구분
+- SSE: `GET /api/jobs/{jobId}/stream`
+
+## PWA
+
+- `public/manifest.json` 설정
+- `next-pwa` 사용
+- 홈 화면 추가 시 주소창 없이 독립 창으로 실행

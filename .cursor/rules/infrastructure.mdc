@@ -1,0 +1,46 @@
+---
+description: Docker Compose 인프라 및 배포 컨벤션 - MinIO, Nginx, 보안 원칙
+globs: docker-compose*.yml, Dockerfile, nginx/**/*.conf, .env*
+alwaysApply: false
+---
+
+# 인프라 컨벤션
+
+## Docker Compose 구성
+
+```
+nginx          → 80, 443 (외부 공개 포트는 이것만)
+frontend       → 3000 (expose only)
+backend        → 8000 (expose only)
+postgres       → 5432 (내부 전용)
+minio          → 9000 API (내부), 9001 콘솔 (관리용)
+```
+
+## 보안 원칙
+
+- PostgreSQL, MinIO는 외부 접근 차단 (Docker 내부 네트워크)
+- FastAPI는 Nginx를 통해서만 접근
+- MinIO 버킷은 private, presigned URL 또는 FastAPI proxy download
+- API 키는 `.env`로 관리, Git에 올리지 않음
+- PDF만 허용, 최대 50MB
+- 모든 데이터는 user_id 기준 격리
+
+## MinIO
+
+AWS S3를 사용하지 않는다. MinIO로 대체.
+- `boto3`로 S3 호환 API 사용, endpoint만 `http://minio:9000`으로 지정
+- 버킷: `dontdelay-exam`
+
+## 핵심 환경 변수
+
+```
+EMBEDDING_PROVIDER=local|openai
+LLM_MODEL=gpt-4o
+DATABASE_URL=postgresql+asyncpg://...
+MINIO_ENDPOINT=http://minio:9000
+```
+
+## HTTPS
+
+- Nginx + Let's Encrypt
+- DuckDNS 또는 별도 도메인
