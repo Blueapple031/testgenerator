@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # Exam generation
     EXAM_MAX_QUESTION_COUNT: int = 30
 
+    # Exam style (족보) analysis
+    EXAM_STYLE_MAX_TEXT_CHARS: int = 32_000
+
     # Limits
     EXAM_MAX_UPLOAD_BYTES: int = 52_428_800  # 50MB
     EXAM_CHUNK_SIZE: int = 800

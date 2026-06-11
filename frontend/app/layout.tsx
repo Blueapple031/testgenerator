@@ -29,6 +29,9 @@ export default function RootLayout({
             <a href="/documents" className="text-gray-600 hover:text-gray-900">
               문서
             </a>
+            <a href="/exam-styles" className="text-gray-600 hover:text-gray-900">
+              출제 스타일
+            </a>
             <a href="/exams" className="text-gray-600 hover:text-gray-900">
               문제집
             </a>

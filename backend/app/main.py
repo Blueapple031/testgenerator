@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.infra import minio_client
-from app.routers import auth, documents, exams, jobs, learning, solve, workspaces
+from app.routers import auth, documents, exam_styles, exams, jobs, learning, solve, workspaces
 
 
 @asynccontextmanager
@@ -34,6 +34,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
+app.include_router(exam_styles.router, prefix="/api/exam-styles", tags=["exam-styles"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(exams.router, prefix="/api/exams", tags=["exams"])
 app.include_router(solve.router, prefix="/api/exams", tags=["solve"])

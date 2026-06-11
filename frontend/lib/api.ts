@@ -94,3 +94,25 @@ export interface ExamListItem {
   question_count: number;
   created_at: string;
 }
+
+export interface ExamStyleProfile {
+  id: string;
+  document_id: string;
+  document_filename: string | null;
+  professor_name: string | null;
+  subject: string | null;
+  analyzed_exam_count: number;
+  type_distribution: Record<string, number> | null;
+  bloom_distribution: Record<string, number> | null;
+  avg_questions_per_exam: number | null;
+  common_concepts: string[] | null;
+  style_notes: string | null;
+  created_at: string;
+}
+
+export interface ExamStyleAnalyzeRequest {
+  document_id: string;
+  professor_name?: string;
+  subject?: string;
+  raw_text?: string;
+}

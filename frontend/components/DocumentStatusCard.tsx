@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import ExamStyleAnalyzeButton from "@/components/ExamStyleAnalyzeButton";
 import { api, type DocumentType, type StudyDocument } from "@/lib/api";
 
 const DOC_TYPE_LABELS: Record<DocumentType, string> = {
@@ -62,6 +63,7 @@ export default function DocumentStatusCard({ doc, onDeleted }: DocumentStatusCar
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        <ExamStyleAnalyzeButton doc={doc} />
         <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusStyle}`}>
           {doc.status}
         </span>
