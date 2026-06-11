@@ -11,27 +11,17 @@ import asyncio
 import functools
 import logging
 
-import fitz
 import httpx
 
 from app.config import settings
-from app.services.extraction_service import ExtractionService, PageText
+from app.services.extraction_service import ExtractionService, PageText, render_page_png
 
 logger = logging.getLogger(__name__)
 
 UPSTAGE_OCR_URL = "https://api.upstage.ai/v1/document-digitization"
-RENDER_DPI = 200
 HTTP_TIMEOUT = 60.0
 # 백오프 상한(초). Retry-After 헤더가 없을 때 지수 백오프의 최대 대기 시간.
 MAX_BACKOFF_SECONDS = 30.0
-
-
-def _render_page_png(pdf_bytes: bytes, page_number: int) -> bytes:
-    """지정한 페이지(1-based)를 PNG 바이트로 렌더링한다. (동기)"""
-    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
-        page = doc[page_number - 1]
-        pixmap = page.get_pixmap(dpi=RENDER_DPI)
-        return pixmap.tobytes("png")
 
 
 def _parse_ocr_text(payload: dict) -> str:
@@ -115,7 +105,7 @@ async def ocr_pages(pdf_bytes: bytes, pages: list[PageText]) -> list[PageText]:
                 await asyncio.sleep(request_delay)
             try:
                 image = await loop.run_in_executor(
-                    None, functools.partial(_render_page_png, pdf_bytes, page.page_number)
+                    None, functools.partial(render_page_png, pdf_bytes, page.page_number)
                 )
                 text = await _ocr_image(client, image)
                 if text:
@@ -127,6 +117,12 @@ async def ocr_pages(pdf_bytes: bytes, pages: list[PageText]) -> list[PageText]:
         return pages
 
     return [
-        PageText(page_number=p.page_number, text=ocr_text_by_page.get(p.page_number, p.text))
+        PageText(
+            page_number=p.page_number,
+            text=ocr_text_by_page.get(p.page_number, p.text),
+            has_images=p.has_images,
+            drawing_count=p.drawing_count,
+            source="ocr" if p.page_number in ocr_text_by_page else p.source,
+        )
         for p in pages
     ]

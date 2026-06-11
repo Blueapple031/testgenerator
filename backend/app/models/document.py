@@ -42,5 +42,9 @@ class DocumentChunk(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     page_start: Mapped[int | None] = mapped_column(Integer)
     page_end: Mapped[int | None] = mapped_column(Integer)
+    # 청크 본문을 만든 추출 방식: "text"(PyMuPDF) | "ocr"(Upstage) | "vision"(gpt-4o)
+    extraction_method: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="text", server_default="text"
+    )
     embedding = mapped_column(Vector(1536))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

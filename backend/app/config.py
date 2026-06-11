@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     OCR_MAX_RETRIES: int = 5  # 429/5xx 재시도 횟수
     OCR_REQUEST_DELAY_MS: int = 600  # 페이지 간 호출 간격(레이트 리밋 완화)
 
+    # Vision (그림/다이어그램 포함 페이지를 멀티모달 LLM으로 설명)
+    VISION_ENABLED: bool = True
+    VISION_MODEL: str = ""  # 비우면 LLM_MODEL(gpt-4o)을 사용
+    VISION_MIN_DRAWINGS: int = 10  # 벡터 드로잉이 이 수 이상이면 다이어그램으로 보고 vision 적용
+    VISION_REQUEST_DELAY_MS: int = 300  # 페이지 간 vision 호출 간격
+
     # Limits
     EXAM_MAX_UPLOAD_BYTES: int = 52_428_800  # 50MB
     EXAM_CHUNK_SIZE: int = 800

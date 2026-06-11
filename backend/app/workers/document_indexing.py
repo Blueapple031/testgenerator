@@ -21,6 +21,7 @@ from app.models.document import DocumentChunk, StudyDocument
 from app.services.chunk_service import ChunkService
 from app.services.embedding_service import EmbeddingService
 from app.services.extraction_service import ExtractionService
+from app.services.vision_service import enrich_pages_with_vision
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,10 @@ async def index_document(document_id: uuid.UUID) -> None:
             )
             document.page_count = page_count
 
+            # 그림/다이어그램 페이지는 멀티모달 LLM으로 본문+도식 설명을 생성한다.
+            pages = await enrich_pages_with_vision(pdf_bytes, pages)
+
+            # vision으로 채워지지 않은 sparse 텍스트 페이지는 OCR로 보강한다.
             if ExtractionService.needs_ocr(pages):
                 pages = await ocr_pages(pdf_bytes, pages)
 
@@ -68,6 +73,7 @@ async def index_document(document_id: uuid.UUID) -> None:
                             content=chunk.content,
                             page_start=chunk.page_start,
                             page_end=chunk.page_end,
+                            extraction_method=chunk.source,
                             embedding=embedding,
                         )
                     )

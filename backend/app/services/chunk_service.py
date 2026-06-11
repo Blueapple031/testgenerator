@@ -15,6 +15,7 @@ class Chunk:
     content: str
     page_start: int
     page_end: int
+    source: str = "text"
 
 
 def _sliding_window(text: str, size: int, overlap: int) -> list[str]:
@@ -54,6 +55,7 @@ class ChunkService:
                         content=piece,
                         page_start=page.page_number,
                         page_end=page.page_number,
+                        source=page.source,
                     )
                 )
                 index += 1
