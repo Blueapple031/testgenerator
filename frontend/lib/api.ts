@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -7,7 +7,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    throw new Error(`API ${res.status}: ${res.statusText}`);
+    let detail = `API ${res.status}: ${res.statusText}`;
+    try {
+      const data = await res.json();
+      if (typeof data?.detail === "string") detail = data.detail;
+      else if (Array.isArray(data?.detail)) detail = data.detail.map((d: { msg?: string }) => d.msg).join(", ");
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
   }
   if (res.status === 204) {
     return undefined as T;
@@ -115,4 +123,38 @@ export interface ExamStyleAnalyzeRequest {
   professor_name?: string;
   subject?: string;
   raw_text?: string;
+}
+
+export type Difficulty = "easy" | "medium" | "hard";
+
+export interface ExamGenerationRequest {
+  document_ids: string[];
+  title?: string;
+  question_count: number;
+  question_types: QuestionType[];
+  difficulty: Difficulty;
+  exam_style_profile_id?: string;
+  page_range_start?: number;
+  page_range_end?: number;
+}
+
+export interface JobCreateResponse {
+  job_id: string;
+  status: string;
+}
+
+export interface JobStreamEvent {
+  stage: string;
+  progress: number;
+  message: string | null;
+  exam_id: string | null;
+}
+
+export interface JobStatusResponse {
+  id: string;
+  status: string;
+  progress: number;
+  message: string | null;
+  exam_id: string | null;
+  created_at: string;
 }

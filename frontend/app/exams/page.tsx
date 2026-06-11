@@ -54,17 +54,25 @@ export default function ExamsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">문제집</h1>
           <p className="mt-1 text-sm text-gray-500">
-            생성된 시험을 미리보고 인쇄할 수 있습니다.
+            AI로 생성한 시험을 미리보고 인쇄할 수 있습니다.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleCreateDemo}
-          disabled={creating}
-          className="shrink-0 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
-        >
-          {creating ? "생성 중..." : "데모 시험 만들기"}
-        </button>
+        <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
+          <Link
+            href="/exams/generate"
+            className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
+          >
+            문제집 생성
+          </Link>
+          <button
+            type="button"
+            onClick={handleCreateDemo}
+            disabled={creating}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {creating ? "생성 중..." : "데모"}
+          </button>
+        </div>
       </header>
 
       {loading ? (
@@ -74,14 +82,12 @@ export default function ExamsPage() {
       ) : exams.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 bg-white py-12 text-center">
           <p className="text-sm text-gray-500">생성된 문제집이 없습니다.</p>
-          <button
-            type="button"
-            onClick={handleCreateDemo}
-            disabled={creating}
-            className="mt-4 text-sm font-medium text-primary-600 hover:text-primary-700"
+          <Link
+            href="/exams/generate"
+            className="mt-4 inline-block text-sm font-medium text-primary-600 hover:text-primary-700"
           >
-            데모 시험으로 미리보기 체험하기
-          </button>
+            AI로 문제집 생성하기 →
+          </Link>
         </div>
       ) : (
         <ul className="space-y-2">

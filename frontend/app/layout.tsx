@@ -35,6 +35,9 @@ export default function RootLayout({
             <a href="/exams" className="text-gray-600 hover:text-gray-900">
               문제집
             </a>
+            <a href="/exams/generate" className="text-gray-600 hover:text-gray-900">
+              생성
+            </a>
           </div>
         </nav>
         {children}
