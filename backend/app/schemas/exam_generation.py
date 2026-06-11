@@ -17,6 +17,15 @@ QUESTION_ANGLES = frozenset({
     "tradeoff",
 })
 
+# 정의·비교·원인 등 서술이 필요한 출제 각도 — short_answer/multiple_choice와 조합 불가
+ESSAY_REQUIRED_ANGLES = frozenset({
+    "definition",
+    "comparison",
+    "cause_effect",
+    "design",
+    "tradeoff",
+})
+
 
 class AnswerCandidatePayload(BaseModel):
     """LLM 정답 후보 추출 JSON 검증용."""
@@ -50,13 +59,34 @@ class AnswerCandidatePayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_type_fields(self) -> Self:
+        angle = self.question_angle
+        if angle in ESSAY_REQUIRED_ANGLES:
+            if self.question_type_hint not in ESSAY_TYPES:
+                raise ValueError(
+                    f"출제 각도 '{angle}'는 essay_short/essay_long과만 조합 가능"
+                )
+            if len(self.answer_outline) < 2:
+                raise ValueError(f"각도 '{angle}' 후보는 answer_outline 2개 이상 필요")
+            return self
         if self.question_type_hint in ESSAY_TYPES:
             if len(self.answer_outline) < 2:
                 raise ValueError("서술형 후보는 answer_outline 2개 이상 필요")
         elif self.question_type_hint in SHORT_TYPES:
             if not self.answer_phrase or not self.answer_phrase.strip():
                 raise ValueError("단답/객관식 후보는 answer_phrase 필요")
+            if normalize_text(self.answer_phrase) == normalize_text(self.concept):
+                raise ValueError(
+                    "answer_phrase는 concept명과 동일하면 안 됨 — 실제 정답 키워드/값을 사용"
+                )
         return self
+
+
+def normalize_text(text: str) -> str:
+    """후보 검증용 간단 정규화 (dedup 모듈과 동일 규칙)."""
+    import re
+
+    lowered = text.lower().strip()
+    return re.sub(r"[\s\W_]+", "", lowered, flags=re.UNICODE)
 
 
 class AnswerCandidate(BaseModel):

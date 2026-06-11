@@ -8,9 +8,24 @@ from app.config import settings
 from app.schemas.exam import GeneratedQuestionPayload
 from app.schemas.exam_generation import (
     ESSAY_TYPES,
+    ESSAY_REQUIRED_ANGLES,
     AnswerCandidate,
     GeneratedQuestionRecord,
     QuestionValidationResult,
+)
+
+EXPLANATORY_STEM_MARKERS = (
+    "설명",
+    "논하",
+    "서술",
+    "정의",
+    "기술",
+    "비교",
+    "분석",
+    "discuss",
+    "explain",
+    "describe",
+    "define",
 )
 
 
@@ -22,6 +37,61 @@ def normalize_text(text: str) -> str:
 
 def is_essay_type(question_type: str) -> bool:
     return question_type in ESSAY_TYPES
+
+
+def stem_requires_explanation(stem: str) -> bool:
+    """stem이 정의·설명·서술 등 장문 답을 요구하는지."""
+    return any(marker in stem for marker in EXPLANATORY_STEM_MARKERS)
+
+
+def answer_is_concept_label(
+    answer: str,
+    candidate: AnswerCandidate,
+    *,
+    question_type: str = "",
+) -> bool:
+    """정답이 개념명·answer_phrase 한 줄뿐인지 (단답 키워드 정답은 제외)."""
+    norm_answer = normalize_text(answer)
+    if not norm_answer:
+        return True
+    norm_concept = normalize_text(candidate.concept)
+    norm_phrase = normalize_text(candidate.answer_phrase or "")
+
+    if question_type in {"short_answer", "multiple_choice"}:
+        # phrase가 concept와 다르고 정답이 phrase와 일치 → 정상 단답 (예: concept=LRU 알고리즘, phrase=LRU)
+        if norm_phrase and norm_answer == norm_phrase and norm_phrase != norm_concept:
+            return False
+
+    if norm_concept and norm_answer == norm_concept:
+        return True
+    if norm_phrase and norm_concept and norm_phrase == norm_concept and norm_answer == norm_concept:
+        return True
+    return False
+
+
+def _validate_stem_answer_alignment(
+    payload: GeneratedQuestionPayload,
+    candidate: AnswerCandidate,
+) -> QuestionValidationResult | None:
+    """유형·각도·stem·정답 길이 교차 검증. None이면 통과."""
+    needs_essay = (
+        stem_requires_explanation(payload.stem)
+        or candidate.question_angle in ESSAY_REQUIRED_ANGLES
+    )
+    if needs_essay and not is_essay_type(payload.question_type):
+        return QuestionValidationResult(
+            is_valid=False,
+            reason="stem/출제각도가 서술을 요구하지만 단답·객관식 유형",
+        )
+    if answer_is_concept_label(payload.answer, candidate, question_type=payload.question_type):
+        if is_essay_type(payload.question_type) or needs_essay or stem_requires_explanation(
+            payload.stem
+        ):
+            return QuestionValidationResult(
+                is_valid=False,
+                reason="정답이 개념명 한 줄뿐이며 설명·서술 요구와 불일치",
+            )
+    return None
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -102,24 +172,26 @@ def select_candidate_for_question(
     question_type: str,
     used_angles: set[str] | None = None,
 ) -> AnswerCandidate | None:
-    """요청 유형과 일치하는 미사용 후보 우선 선택."""
+    """요청 유형과 일치하는 미사용 후보만 선택 (유형 불일치 후보 제외)."""
     used_angles = used_angles or set()
     available = [
         c
         for c in candidates
-        if c.candidate_id not in used_candidate_ids and c.question_type_hint == question_type
+        if c.candidate_id not in used_candidate_ids
+        and c.question_type_hint == question_type
+        and not (
+            question_type in {"short_answer", "multiple_choice"}
+            and c.question_angle in ESSAY_REQUIRED_ANGLES
+        )
     ]
-    if not available:
-        available = [c for c in candidates if c.candidate_id not in used_candidate_ids]
 
     if not available:
         return None
 
     def sort_key(c: AnswerCandidate) -> tuple[int, int, str]:
-        type_match = 0 if c.question_type_hint == question_type else 1
         angle_used = 1 if c.question_angle in used_angles else 0
         chunk_usage = chunk_usage_count.get(str(c.evidence_chunk_id), 0)
-        return (type_match, angle_used, chunk_usage, c.candidate_id)
+        return (angle_used, chunk_usage, c.candidate_id)
 
     return min(available, key=sort_key)
 
@@ -133,6 +205,18 @@ def _validate_short_answer(
     norm_actual = normalize_text(payload.answer)
     if not norm_actual:
         return QuestionValidationResult(is_valid=False, reason="정답이 비어 있음")
+
+    if stem_requires_explanation(payload.stem):
+        return QuestionValidationResult(
+            is_valid=False,
+            reason="stem은 설명·정의를 요구하지만 단답형",
+        )
+
+    if answer_is_concept_label(payload.answer, candidate, question_type=payload.question_type):
+        return QuestionValidationResult(
+            is_valid=False,
+            reason="단답 정답이 개념명만 반복됨",
+        )
 
     answer_match = (
         norm_expected == norm_actual
@@ -204,6 +288,10 @@ def validate_generated_question(
     """유형별 규칙 기반 문제·정답 정합성 검증."""
     if not payload.stem or len(payload.stem.strip()) < 5:
         return QuestionValidationResult(is_valid=False, reason="stem이 비어 있거나 너무 짧음")
+
+    alignment = _validate_stem_answer_alignment(payload, candidate)
+    if alignment is not None:
+        return alignment
 
     if is_essay_type(payload.question_type):
         result = _validate_essay(payload, candidate)

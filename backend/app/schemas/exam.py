@@ -18,7 +18,7 @@ class ExamGenerationRequest(BaseModel):
     document_ids: list[UUID] = Field(..., min_length=1)
     title: str | None = Field(default=None, max_length=300)
     question_count: int = Field(default=10, ge=1, le=30)
-    question_types: list[str] = Field(default=["short_answer"], min_length=1)
+    question_types: list[str] = Field(default=["short_answer", "essay_short"], min_length=1)
     difficulty: str = "medium"
     bloom_distribution: dict[str, int] | None = None
     exam_style_profile_id: UUID | None = None

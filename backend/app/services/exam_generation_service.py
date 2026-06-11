@@ -22,6 +22,7 @@ from app.schemas.exam import ExamGenerationRequest, GeneratedQuestionPayload
 from app.schemas.exam_generation import (
     AnswerCandidate,
     AnswerCandidatePayload,
+    ESSAY_REQUIRED_ANGLES,
     GeneratedQuestionRecord,
     QUESTION_ANGLES,
 )
@@ -193,10 +194,13 @@ class ExamGenerationService:
         user_prompt = f"""다음 강의자료 chunk에서 출제 후보 {candidate_count}개를 추출하세요.
 
 [유형별 규칙]
-- short_answer / multiple_choice: answer_phrase(짧은 정답) 필수, answer_outline은 []
+- short_answer / multiple_choice: answer_phrase(짧은 정답 키워드·값) 필수, answer_outline은 []
+  - answer_phrase는 concept명과 동일하면 안 됨 (예: concept="LRU" → phrase="Least Recently Used")
+  - question_angle은 scenario만 사용 (definition/comparison/cause_effect/design/tradeoff 금지)
 - essay_short / essay_long: answer_outline(핵심 요지 2~5개) 필수, answer_phrase는 null 가능
+  - definition, comparison, cause_effect, design, tradeoff 각도는 반드시 essay 유형
 - question_type_hint는 {types} 중 하나를 골고루 배분
-- question_angle은 {angles} 중 하나 (후보마다 다양하게)
+- question_angle은 {angles} 중 하나 (후보마다 다양하게, 유형과 조합 규칙 준수)
 - 서로 다른 concept, 서로 다른 angle
 
 [chunk id 목록]
@@ -310,9 +314,15 @@ class ExamGenerationService:
         if is_essay_type(question_type):
             outline_text = "\n".join(f"  - {p}" for p in candidate.answer_outline)
             min_sent = "3~5문장" if question_type == "essay_short" else "5~10문장"
+            angle_note = ""
+            if candidate.question_angle in ESSAY_REQUIRED_ANGLES:
+                angle_note = (
+                    "\n- 정의·비교·원인 분석 등: answer는 개념명만 쓰지 말고 "
+                    "outline을 문장으로 풀어쓴 모범답"
+                )
             rules = f"""[서술형 정답 규칙]
 - answer는 answer_outline을 {min_sent} 모범답으로 전개
-- 개념명 한 줄만 쓰지 말 것
+- 개념명 한 줄만 쓰지 말 것{angle_note}
 - outline 각 요지를 answer에 반드시 반영
 [answer_outline]
 {outline_text}"""
@@ -322,8 +332,9 @@ class ExamGenerationService:
         phrase = candidate.answer_phrase or candidate.concept
         rules = f"""[단답/객관식 정답 규칙]
 - answer는 answer_phrase와 일치: {phrase}
-- stem은 짧은 답을 요구하는 형태 (한 줄 답 가능)
-- "설명하고 논하시오"처럼 긴 서술을 요구하지 말 것"""
+- stem은 한 줄·한 단어/구로 답 가능한 형태 (예: "다음 중 ~은?", "~의 값은?")
+- "설명하시오", "정의하시오", "논하시오" 등 서술 요구 stem 금지
+- answer에 concept명({candidate.concept})만 반복하지 말 것"""
         example = f'"answer": "{phrase}"'
         return rules, example
 
@@ -369,6 +380,10 @@ class ExamGenerationService:
 - stem은 서술형: 비교·설명·적용·분석 등 구체적 과제를 명시
 - "~란 무엇인가?"만 묻고 끝내지 말 것
 - 정답이 한 단어/명사구만 되는 stem 금지"""
+        else:
+            essay_stem_rules = """
+- stem은 단답/객관식: 한 줄 답으로 끝낼 수 있게 작성
+- "설명", "정의", "논하", "서술" 등 장문 답을 요구하는 표현 금지"""
 
         system_prompt = (
             "당신은 대학 강의자료에 근거해 시험 문제를 만드는 출제 전문가입니다. "

@@ -2,8 +2,11 @@
 
 import uuid
 
+import pytest
+from pydantic import ValidationError
+
 from app.schemas.exam import GeneratedQuestionPayload
-from app.schemas.exam_generation import AnswerCandidate, GeneratedQuestionRecord
+from app.schemas.exam_generation import AnswerCandidate, AnswerCandidatePayload, GeneratedQuestionRecord
 from app.services.exam_generation_dedup import (
     cosine_similarity,
     deduplicate_candidates,
@@ -31,7 +34,7 @@ class TestDeduplicateCandidates:
         chunk_id: uuid.UUID | None = None,
         *,
         qtype: str = "short_answer",
-        angle: str = "definition",
+        angle: str = "scenario",
         outline: list[str] | None = None,
     ) -> AnswerCandidate:
         return AnswerCandidate(
@@ -127,6 +130,55 @@ class TestEssayValidation:
         assert result.is_valid is True
 
 
+class TestShortAnswerDefinitionMismatch:
+    def _short_candidate(self) -> AnswerCandidate:
+        return AnswerCandidate(
+            candidate_id="s1",
+            concept="하이퍼바이저 클러스터링",
+            answer_phrase="HA 클러스터",
+            evidence_chunk_id=uuid.uuid4(),
+            evidence_text="하이퍼바이저 클러스터링 HA",
+            question_type_hint="short_answer",
+            question_angle="scenario",
+        )
+
+    def test_explain_stem_with_concept_answer_fails(self):
+        payload = GeneratedQuestionPayload(
+            stem="하이퍼바이저 클러스터링 아키텍처의 정의를 간단히 설명하시오.",
+            question_type="short_answer",
+            difficulty="medium",
+            answer="하이퍼바이저 클러스터링",
+        )
+        result = validate_generated_question(payload, self._short_candidate(), "HA cluster")
+        assert result.is_valid is False
+
+    def test_concept_only_answer_fails_even_without_explain_stem(self):
+        payload = GeneratedQuestionPayload(
+            stem="다음 HA 구성의 명칭은?",
+            question_type="short_answer",
+            difficulty="medium",
+            answer="하이퍼바이저 클러스터링",
+        )
+        candidate = self._short_candidate()
+        candidate = candidate.model_copy(update={"answer_phrase": "하이퍼바이저 클러스터링"})
+        result = validate_generated_question(payload, candidate, "하이퍼바이저 클러스터링 HA")
+        assert result.is_valid is False
+
+
+class TestCandidatePayloadSchema:
+    def test_definition_requires_essay(self):
+        with pytest.raises(ValidationError):
+            AnswerCandidatePayload(
+                concept="SPOF",
+                answer_phrase="단일 실패 지점",
+                answer_outline=[],
+                evidence_chunk_id="00000000-0000-0000-0000-000000000001",
+                evidence_text="SPOF 장애",
+                question_type_hint="short_answer",
+                question_angle="definition",
+            )
+
+
 class TestStemDuplicateDetection:
     def test_similar_stems_detected_via_fallback(self):
         payload = GeneratedQuestionPayload(
@@ -143,6 +195,7 @@ class TestStemDuplicateDetection:
             evidence_chunk_id=uuid.uuid4(),
             evidence_text="four conditions for deadlock",
             question_type_hint="short_answer",
+            question_angle="scenario",
         )
         previous = [
             GeneratedQuestionRecord(
@@ -172,6 +225,7 @@ class TestStemDuplicateDetection:
             evidence_chunk_id=uuid.uuid4(),
             evidence_text="근거",
             question_type_hint="short_answer",
+            question_angle="scenario",
         )
         previous = [
             GeneratedQuestionRecord(
@@ -192,11 +246,12 @@ class TestMultipleChoiceValidation:
     def _base_candidate(self) -> AnswerCandidate:
         return AnswerCandidate(
             candidate_id="c1",
-            concept="LRU",
+            concept="페이지 교체 알고리즘",
             answer_phrase="LRU",
             evidence_chunk_id=uuid.uuid4(),
             evidence_text="LRU는 least recently used 페이지 교체",
             question_type_hint="multiple_choice",
+            question_angle="scenario",
         )
 
     def test_answer_not_in_choices_fails(self):
@@ -254,6 +309,7 @@ class TestCandidateSelection:
                 evidence_chunk_id=uuid.uuid4(),
                 evidence_text="text",
                 question_type_hint="short_answer",
+                question_angle="scenario",
             ),
             AnswerCandidate(
                 candidate_id="essay",
@@ -283,6 +339,7 @@ class TestCandidateSelection:
                 evidence_chunk_id=uuid.uuid4(),
                 evidence_text="text",
                 question_type_hint="short_answer",
+                question_angle="scenario",
             ),
             AnswerCandidate(
                 candidate_id="free",
@@ -291,6 +348,7 @@ class TestCandidateSelection:
                 evidence_chunk_id=uuid.uuid4(),
                 evidence_text="text",
                 question_type_hint="short_answer",
+                question_angle="scenario",
             ),
         ]
         selected = select_candidate_for_question(
@@ -301,3 +359,23 @@ class TestCandidateSelection:
         )
         assert selected is not None
         assert selected.candidate_id == "free"
+
+    def test_no_fallback_to_mismatched_type(self):
+        candidates = [
+            AnswerCandidate(
+                candidate_id="essay_only",
+                concept="SPOF",
+                answer_outline=["정의", "영향"],
+                evidence_chunk_id=uuid.uuid4(),
+                evidence_text="text",
+                question_type_hint="essay_short",
+                question_angle="definition",
+            ),
+        ]
+        selected = select_candidate_for_question(
+            candidates,
+            used_candidate_ids=set(),
+            chunk_usage_count={},
+            question_type="short_answer",
+        )
+        assert selected is None

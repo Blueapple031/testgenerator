@@ -46,7 +46,10 @@ export default function ExamGenerationForm({
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [title, setTitle] = useState("");
   const [questionCount, setQuestionCount] = useState(5);
-  const [questionTypes, setQuestionTypes] = useState<QuestionType[]>(["short_answer"]);
+  const [questionTypes, setQuestionTypes] = useState<QuestionType[]>([
+    "short_answer",
+    "essay_short",
+  ]);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [pageStart, setPageStart] = useState("");
   const [pageEnd, setPageEnd] = useState("");
