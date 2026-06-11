@@ -1,6 +1,6 @@
 """비동기 문서 인덱싱 파이프라인.
 
-다운로드(MinIO) → 텍스트 추출(PyMuPDF) → (필요 시) OCR fallback
+다운로드(MinIO) → 텍스트 추출(PyMuPDF) → OCR/Vision 보강 (EXTRACTION_PIPELINE)
 → chunking → embedding → pgvector 저장.
 
 문서 상태 머신: UPLOADED → EXTRACTING → INDEXING → READY (실패 시 FAILED)
@@ -16,12 +16,11 @@ from sqlalchemy import delete
 from app.config import settings
 from app.database import async_session
 from app.infra import minio_client
-from app.infra.ocr_client import ocr_pages
 from app.models.document import DocumentChunk, StudyDocument
 from app.services.chunk_service import ChunkService
 from app.services.embedding_service import EmbeddingService
+from app.services.extraction_pipeline import enrich_pages
 from app.services.extraction_service import ExtractionService
-from app.services.vision_service import enrich_pages_with_vision
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +44,14 @@ async def index_document(document_id: uuid.UUID) -> None:
             )
             document.page_count = page_count
 
-            # 그림/다이어그램 페이지는 멀티모달 LLM으로 본문+도식 설명을 생성한다.
-            pages = await enrich_pages_with_vision(pdf_bytes, pages)
-
-            # vision으로 채워지지 않은 sparse 텍스트 페이지는 OCR로 보강한다.
-            if ExtractionService.needs_ocr(pages):
-                pages = await ocr_pages(pdf_bytes, pages)
+            pages, enrich_stats = await enrich_pages(pdf_bytes, pages)
+            logger.info(
+                "추출 파이프라인 [%s] 완료 — OCR %d페이지, Vision %d페이지 / 전체 %d페이지",
+                enrich_stats.pipeline,
+                enrich_stats.ocr_pages,
+                enrich_stats.vision_pages,
+                enrich_stats.total_pages,
+            )
 
             await _set_status(db, document, "INDEXING")
 

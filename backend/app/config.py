@@ -1,4 +1,8 @@
+from typing import Callable, Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ExtractionPipelineMode = Literal["vision_first", "ocr_first"]
 
 
 class Settings(BaseSettings):
@@ -38,6 +42,9 @@ class Settings(BaseSettings):
     VISION_MODEL: str = ""  # 비우면 LLM_MODEL을 사용
     VISION_MIN_DRAWINGS: int = 10  # 벡터 드로잉이 이 수 이상이면 다이어그램으로 보고 vision 적용
     VISION_REQUEST_DELAY_MS: int = 300  # 페이지 간 vision 호출 간격
+
+    # PDF 텍스트 보강 순서: vision_first | ocr_first (A/B 비교용)
+    EXTRACTION_PIPELINE: ExtractionPipelineMode = "vision_first"
 
     # RAG
     RAG_DEFAULT_TOP_K: int = 10

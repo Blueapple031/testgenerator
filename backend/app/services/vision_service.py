@@ -8,6 +8,7 @@ vision이 비활성화돼 있거나 API 키가 없거나 호출이 실패하면 
 import asyncio
 import functools
 import logging
+from collections.abc import Callable
 
 from app.config import settings
 from app.infra.vision_client import describe_page_image
@@ -16,15 +17,21 @@ from app.services.extraction_service import ExtractionService, PageText, render_
 logger = logging.getLogger(__name__)
 
 
-async def enrich_pages_with_vision(pdf_bytes: bytes, pages: list[PageText]) -> list[PageText]:
+async def enrich_pages_with_vision(
+    pdf_bytes: bytes,
+    pages: list[PageText],
+    *,
+    page_filter: Callable[[PageText], bool] | None = None,
+) -> tuple[list[PageText], int]:
     """그림이 포함된 페이지를 vision 설명으로 대체한 새 페이지 리스트를 반환한다."""
     if not settings.VISION_ENABLED or not settings.OPENAI_API_KEY:
         logger.info("Vision 보강 비활성화 또는 API 키 없음 — 원본 텍스트 유지")
-        return pages
+        return pages, 0
 
-    target_pages = [p for p in pages if ExtractionService.page_needs_vision(p)]
+    predicate = page_filter or ExtractionService.page_needs_vision
+    target_pages = [p for p in pages if predicate(p)]
     if not target_pages:
-        return pages
+        return pages, 0
 
     loop = asyncio.get_running_loop()
     vision_text_by_page: dict[int, str] = {}
@@ -44,19 +51,22 @@ async def enrich_pages_with_vision(pdf_bytes: bytes, pages: list[PageText]) -> l
             logger.exception("페이지 %d vision 보강 실패 — 원본 텍스트 유지", page.page_number)
 
     if not vision_text_by_page:
-        return pages
+        return pages, 0
 
     logger.info("Vision 보강 완료: %d개 페이지", len(vision_text_by_page))
-    return [
-        PageText(
-            page_number=p.page_number,
-            text=vision_text_by_page.get(p.page_number, p.text),
-            has_images=p.has_images,
-            drawing_count=p.drawing_count,
-            source="vision" if p.page_number in vision_text_by_page else p.source,
-        )
-        for p in pages
-    ]
+    return (
+        [
+            PageText(
+                page_number=p.page_number,
+                text=vision_text_by_page.get(p.page_number, p.text),
+                has_images=p.has_images,
+                drawing_count=p.drawing_count,
+                source="vision" if p.page_number in vision_text_by_page else p.source,
+            )
+            for p in pages
+        ],
+        len(vision_text_by_page),
+    )
 
 
 def _merge(original_text: str, description: str) -> str:

@@ -84,15 +84,15 @@ async def _ocr_image(client: httpx.AsyncClient, image: bytes) -> str:
     return ""
 
 
-async def ocr_pages(pdf_bytes: bytes, pages: list[PageText]) -> list[PageText]:
+async def ocr_pages(pdf_bytes: bytes, pages: list[PageText]) -> tuple[list[PageText], int]:
     """텍스트가 부족한 페이지를 OCR로 보강한 새 페이지 리스트를 반환한다."""
     if not settings.OCR_ENABLED or not settings.UPSTAGE_API_KEY:
         logger.info("OCR fallback 비활성화 또는 API 키 없음 — 원본 텍스트 유지")
-        return pages
+        return pages, 0
 
     sparse_pages = [p for p in pages if ExtractionService.is_page_sparse(p)]
     if not sparse_pages:
-        return pages
+        return pages, 0
 
     loop = asyncio.get_running_loop()
     ocr_text_by_page: dict[int, str] = {}
@@ -114,15 +114,18 @@ async def ocr_pages(pdf_bytes: bytes, pages: list[PageText]) -> list[PageText]:
                 logger.exception("페이지 %d OCR 실패 — 원본 텍스트 유지", page.page_number)
 
     if not ocr_text_by_page:
-        return pages
+        return pages, 0
 
-    return [
-        PageText(
-            page_number=p.page_number,
-            text=ocr_text_by_page.get(p.page_number, p.text),
-            has_images=p.has_images,
-            drawing_count=p.drawing_count,
-            source="ocr" if p.page_number in ocr_text_by_page else p.source,
-        )
-        for p in pages
-    ]
+    return (
+        [
+            PageText(
+                page_number=p.page_number,
+                text=ocr_text_by_page.get(p.page_number, p.text),
+                has_images=p.has_images,
+                drawing_count=p.drawing_count,
+                source="ocr" if p.page_number in ocr_text_by_page else p.source,
+            )
+            for p in pages
+        ],
+        len(ocr_text_by_page),
+    )

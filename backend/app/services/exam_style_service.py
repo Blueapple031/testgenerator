@@ -75,7 +75,7 @@ class ExamStyleService:
             None, functools.partial(ExtractionService.extract_pages, pdf_bytes)
         )
         if settings.OCR_ENABLED and ExtractionService.needs_ocr(pages):
-            pages = await ocr_pages(pdf_bytes, pages)
+            pages, _ = await ocr_pages(pdf_bytes, pages)
 
         parts: list[str] = []
         for page in pages:
