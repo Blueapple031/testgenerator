@@ -67,6 +67,7 @@ class Settings(BaseSettings):
 
     # Exam generation
     EXAM_MAX_QUESTION_COUNT: int = 30
+    EXAM_GEN_FULL_CONTEXT_MAX_CHARS: int = 120_000  # FULL_CONTEXT 프롬프트 상한
 
     # Exam style (족보) analysis
     EXAM_STYLE_MAX_TEXT_CHARS: int = 32_000

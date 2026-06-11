@@ -39,6 +39,60 @@ def is_essay_type(question_type: str) -> bool:
     return question_type in ESSAY_TYPES
 
 
+# essay_long 슬롯은 essay_short 후보도 사용 가능 (정확한 hint 우선)
+COMPATIBLE_QUESTION_TYPES: dict[str, tuple[str, ...]] = {
+    "essay_short": ("essay_short", "essay_long"),
+    "essay_long": ("essay_long", "essay_short"),
+}
+
+
+def compatible_question_types(question_type: str) -> tuple[str, ...]:
+    return COMPATIBLE_QUESTION_TYPES.get(question_type, (question_type,))
+
+
+def count_needed_by_type(question_types: list[str], question_count: int) -> dict[str, int]:
+    """문항 순환 기준 유형별 필요 개수."""
+    counts: dict[str, int] = {t: 0 for t in question_types}
+    for i in range(question_count):
+        qtype = question_types[i % len(question_types)]
+        counts[qtype] = counts.get(qtype, 0) + 1
+    return counts
+
+
+def count_candidates_by_type(candidates: list[AnswerCandidate]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for candidate in candidates:
+        hint = candidate.question_type_hint
+        counts[hint] = counts.get(hint, 0) + 1
+    return counts
+
+
+def missing_candidate_types(
+    candidates: list[AnswerCandidate],
+    question_types: list[str],
+    question_count: int,
+) -> dict[str, int]:
+    """유형별로 부족한 후보 수 (슬롯 대비). essay 계열은 상호 대체 가능."""
+    needed = count_needed_by_type(question_types, question_count)
+    available = count_candidates_by_type(candidates)
+    essay_pool = available.get("essay_short", 0) + available.get("essay_long", 0)
+    essay_needed = needed.get("essay_short", 0) + needed.get("essay_long", 0)
+    missing: dict[str, int] = {}
+
+    for qtype, need in needed.items():
+        if qtype in ESSAY_TYPES:
+            continue
+        have = available.get(qtype, 0)
+        if have < need:
+            missing[qtype] = need - have
+
+    if essay_needed > essay_pool:
+        # 부족분은 essay_short 보충 대상으로 통합
+        missing["essay_short"] = missing.get("essay_short", 0) + (essay_needed - essay_pool)
+
+    return missing
+
+
 def stem_requires_explanation(stem: str) -> bool:
     """stem이 정의·설명·서술 등 장문 답을 요구하는지."""
     return any(marker in stem for marker in EXPLANATORY_STEM_MARKERS)
@@ -172,13 +226,14 @@ def select_candidate_for_question(
     question_type: str,
     used_angles: set[str] | None = None,
 ) -> AnswerCandidate | None:
-    """요청 유형과 일치하는 미사용 후보만 선택 (유형 불일치 후보 제외)."""
+    """요청 유형과 일치하는 미사용 후보만 선택 (essay 계열은 hint 상호 호환)."""
     used_angles = used_angles or set()
+    allowed_hints = set(compatible_question_types(question_type))
     available = [
         c
         for c in candidates
         if c.candidate_id not in used_candidate_ids
-        and c.question_type_hint == question_type
+        and c.question_type_hint in allowed_hints
         and not (
             question_type in {"short_answer", "multiple_choice"}
             and c.question_angle in ESSAY_REQUIRED_ANGLES

@@ -40,7 +40,12 @@ async def create_job(
             detail="OPENAI_API_KEY가 설정되지 않았습니다.",
         )
 
-    await ExamGenerationService.validate_documents(db, user.id, request.document_ids)
+    await ExamGenerationService.validate_documents(
+        db,
+        user.id,
+        request.document_ids,
+        require_indexed=request.generation_mode == "rag",
+    )
     if request.exam_style_profile_id:
         await ExamGenerationService.load_style_profile(
             db, user.id, request.exam_style_profile_id

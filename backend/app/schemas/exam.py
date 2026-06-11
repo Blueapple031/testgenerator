@@ -11,6 +11,7 @@ ALLOWED_QUESTION_TYPES = {
     "essay_long",
 }
 ALLOWED_DIFFICULTIES = {"easy", "medium", "hard"}
+GenerationMode = Literal["rag", "full_context"]
 
 
 class ExamGenerationRequest(BaseModel):
@@ -25,6 +26,18 @@ class ExamGenerationRequest(BaseModel):
     page_range_start: int | None = Field(default=None, ge=1)
     page_range_end: int | None = Field(default=None, ge=1)
     toc_ids: list[UUID] | None = None
+    # rag: RAG+후보 파이프라인(기본) | full_context: PDF 전문 → LLM 배치 (벤치마크)
+    generation_mode: GenerationMode = "rag"
+
+    @field_validator("generation_mode", mode="before")
+    @classmethod
+    def normalize_generation_mode(cls, value: str | None) -> str:
+        if value is None:
+            return "rag"
+        lowered = str(value).lower().strip()
+        if lowered in ("rag", "full_context", "full", "fullcontext"):
+            return "full_context" if lowered != "rag" else "rag"
+        raise ValueError("generation_mode는 rag 또는 full_context 여야 합니다.")
 
     @field_validator("question_types")
     @classmethod

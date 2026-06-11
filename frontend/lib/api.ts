@@ -151,6 +151,8 @@ export interface ExamStyleAnalyzeRequest {
 
 export type Difficulty = "easy" | "medium" | "hard";
 
+export type GenerationMode = "rag" | "full_context";
+
 export interface ExamGenerationRequest {
   document_ids: string[];
   title?: string;
@@ -160,6 +162,8 @@ export interface ExamGenerationRequest {
   exam_style_profile_id?: string;
   page_range_start?: number;
   page_range_end?: number;
+  /** rag(기본): RAG+후보 파이프라인 | full_context: PDF 전문 LLM 배치 */
+  generation_mode?: GenerationMode;
 }
 
 export interface JobCreateResponse {

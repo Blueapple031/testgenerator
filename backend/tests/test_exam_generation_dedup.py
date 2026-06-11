@@ -11,6 +11,7 @@ from app.services.exam_generation_dedup import (
     cosine_similarity,
     deduplicate_candidates,
     is_duplicate_question,
+    missing_candidate_types,
     normalize_text,
     outline_coverage,
     select_candidate_for_question,
@@ -379,3 +380,61 @@ class TestCandidateSelection:
             question_type="short_answer",
         )
         assert selected is None
+
+    def test_essay_long_accepts_essay_short_candidate(self):
+        candidates = [
+            AnswerCandidate(
+                candidate_id="essay_short_only",
+                concept="SPOF",
+                answer_outline=["정의", "영향"],
+                evidence_chunk_id=uuid.uuid4(),
+                evidence_text="text",
+                question_type_hint="essay_short",
+                question_angle="definition",
+            ),
+        ]
+        selected = select_candidate_for_question(
+            candidates,
+            used_candidate_ids=set(),
+            chunk_usage_count={},
+            question_type="essay_long",
+        )
+        assert selected is not None
+        assert selected.candidate_id == "essay_short_only"
+
+
+class TestMissingCandidateTypes:
+    def test_detects_essay_shortage(self):
+        candidates = [
+            AnswerCandidate(
+                candidate_id="s1",
+                concept="A",
+                answer_phrase="a1",
+                evidence_chunk_id=uuid.uuid4(),
+                evidence_text="text",
+                question_type_hint="short_answer",
+                question_angle="scenario",
+            ),
+        ]
+        missing = missing_candidate_types(
+            candidates,
+            ["short_answer", "essay_short"],
+            question_count=4,
+        )
+        assert missing.get("essay_short", 0) >= 1
+
+
+class TestAnswerCandidatePayloadAutoFix:
+    def test_promotes_essay_angle_with_outline(self):
+        payload = AnswerCandidatePayload.model_validate(
+            {
+                "concept": "SPOF",
+                "answer_phrase": "should be ignored",
+                "answer_outline": ["단일 장애점 정의", "이중화 필요성"],
+                "evidence_chunk_id": str(uuid.uuid4()),
+                "evidence_text": "근거 문장",
+                "question_type_hint": "short_answer",
+                "question_angle": "definition",
+            }
+        )
+        assert payload.question_type_hint == "essay_short"

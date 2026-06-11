@@ -62,9 +62,13 @@ class AnswerCandidatePayload(BaseModel):
         angle = self.question_angle
         if angle in ESSAY_REQUIRED_ANGLES:
             if self.question_type_hint not in ESSAY_TYPES:
-                raise ValueError(
-                    f"출제 각도 '{angle}'는 essay_short/essay_long과만 조합 가능"
-                )
+                # LLM이 서술 각도를 단답으로 태깅한 경우 outline이 있으면 essay_short로 보정
+                if len(self.answer_outline) >= 2:
+                    self.question_type_hint = "essay_short"
+                else:
+                    raise ValueError(
+                        f"출제 각도 '{angle}'는 essay_short/essay_long과만 조합 가능"
+                    )
             if len(self.answer_outline) < 2:
                 raise ValueError(f"각도 '{angle}' 후보는 answer_outline 2개 이상 필요")
             return self

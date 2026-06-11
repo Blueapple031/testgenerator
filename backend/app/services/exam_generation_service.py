@@ -30,10 +30,12 @@ from app.services.exam_generation_dedup import (
     deduplicate_candidates,
     is_duplicate_question,
     is_essay_type,
+    missing_candidate_types,
     resolve_chunk_id,
     select_candidate_for_question,
     validate_generated_question,
 )
+from app.services.document_text_service import DocumentTextService
 from app.services.rag_service import ChunkHit, RagService
 
 logger = logging.getLogger(__name__)
@@ -70,26 +72,12 @@ class ExamGenerationService:
         db: AsyncSession,
         user_id: uuid.UUID,
         document_ids: list[uuid.UUID],
+        *,
+        require_indexed: bool = True,
     ) -> list[StudyDocument]:
-        result = await db.execute(
-            select(StudyDocument).where(
-                StudyDocument.user_id == user_id,
-                StudyDocument.id.in_(document_ids),
-            )
+        return await DocumentTextService.load_documents(
+            db, user_id, document_ids, require_indexed=require_indexed
         )
-        documents = list(result.scalars().all())
-        if len(documents) != len(document_ids):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="일부 문서를 찾을 수 없습니다.",
-            )
-        not_ready = [d.filename for d in documents if d.status != "READY"]
-        if not_ready:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"인덱싱이 완료되지 않은 문서: {', '.join(not_ready)}",
-            )
-        return documents
 
     @classmethod
     async def load_style_profile(
@@ -159,6 +147,57 @@ class ExamGenerationService:
         )
 
     @staticmethod
+    def _type_quota_lines(request: ExamGenerationRequest, candidate_count: int) -> str:
+        """유형별 최소 후보 개수 안내 (프롬프트용)."""
+        per_type = max(2, candidate_count // max(len(request.question_types), 1))
+        lines: list[str] = []
+        for qtype in request.question_types:
+            label = TYPE_LABELS.get(qtype, qtype)
+            if is_essay_type(qtype):
+                lines.append(
+                    f"- {label} ({qtype}): 최소 {per_type}개 — "
+                    "answer_outline 2~5개 필수, definition/comparison/cause_effect/design/tradeoff 각도 활용"
+                )
+            else:
+                lines.append(
+                    f"- {label} ({qtype}): 최소 {per_type}개 — "
+                    "answer_phrase 필수, question_angle=scenario만"
+                )
+        return "\n".join(lines)
+
+    @classmethod
+    def _map_raw_candidates(
+        cls,
+        raw_candidates: list,
+        chunks: list[ChunkHit],
+    ) -> list[AnswerCandidate]:
+        valid_ids = {c.chunk_id for c in chunks}
+        mapped: list[AnswerCandidate] = []
+        for idx, item in enumerate(raw_candidates):
+            try:
+                payload = AnswerCandidatePayload.model_validate(item)
+            except ValidationError as exc:
+                logger.warning("후보 %d 검증 스킵: %s", idx, exc)
+                continue
+            chunk_uuid = resolve_chunk_id(payload.evidence_chunk_id, valid_ids)
+            if chunk_uuid is None:
+                chunk_uuid = chunks[idx % len(chunks)].chunk_id
+            mapped.append(
+                AnswerCandidate(
+                    candidate_id=f"cand_{idx}_{uuid.uuid4().hex[:8]}",
+                    concept=payload.concept,
+                    answer_phrase=(payload.answer_phrase or "").strip(),
+                    answer_outline=payload.answer_outline,
+                    evidence_chunk_id=chunk_uuid,
+                    evidence_text=payload.evidence_text,
+                    question_type_hint=payload.question_type_hint,
+                    question_angle=payload.question_angle,
+                    bloom_level=payload.bloom_level,
+                )
+            )
+        return mapped
+
+    @staticmethod
     def _pick_question_type(request: ExamGenerationRequest, index: int) -> str:
         return request.question_types[index % len(request.question_types)]
 
@@ -186,12 +225,17 @@ class ExamGenerationService:
         chunk_id_list = ", ".join(str(c.chunk_id) for c in chunks)
         types = ", ".join(request.question_types)
         angles = ", ".join(sorted(QUESTION_ANGLES))
+        type_quotas = cls._type_quota_lines(request, candidate_count)
 
         system_prompt = (
             "당신은 대학 강의자료에서 시험 출제 가능한 정답 후보를 추출하는 전문가입니다. "
-            "문제 유형별로 다른 형식의 후보를 만들고 JSON만 출력하세요."
+            "문제 유형별로 다른 형식의 후보를 만들고 JSON만 출력하세요. "
+            "요청된 모든 유형의 후보를 반드시 골고루 포함하세요."
         )
         user_prompt = f"""다음 강의자료 chunk에서 출제 후보 {candidate_count}개를 추출하세요.
+
+[유형별 최소 개수 — 반드시 준수]
+{type_quotas}
 
 [유형별 규칙]
 - short_answer / multiple_choice: answer_phrase(짧은 정답 키워드·값) 필수, answer_outline은 []
@@ -199,7 +243,8 @@ class ExamGenerationService:
   - question_angle은 scenario만 사용 (definition/comparison/cause_effect/design/tradeoff 금지)
 - essay_short / essay_long: answer_outline(핵심 요지 2~5개) 필수, answer_phrase는 null 가능
   - definition, comparison, cause_effect, design, tradeoff 각도는 반드시 essay 유형
-- question_type_hint는 {types} 중 하나를 골고루 배분
+  - essay_short와 essay_long 후보를 각각 별도로 생성 (단답형만 만들지 말 것)
+- question_type_hint는 {types} 중 하나
 - question_angle은 {angles} 중 하나 (후보마다 다양하게, 유형과 조합 규칙 준수)
 - 서로 다른 concept, 서로 다른 angle
 
@@ -238,30 +283,100 @@ class ExamGenerationService:
         try:
             data = json.loads(raw)
             raw_candidates = data.get("candidates", data if isinstance(data, list) else [])
-            valid_ids = {c.chunk_id for c in chunks}
-            mapped: list[AnswerCandidate] = []
-            for idx, item in enumerate(raw_candidates):
-                payload = AnswerCandidatePayload.model_validate(item)
-                chunk_uuid = resolve_chunk_id(payload.evidence_chunk_id, valid_ids)
-                if chunk_uuid is None:
-                    chunk_uuid = chunks[idx % len(chunks)].chunk_id
-                mapped.append(
-                    AnswerCandidate(
-                        candidate_id=f"cand_{idx}_{uuid.uuid4().hex[:8]}",
-                        concept=payload.concept,
-                        answer_phrase=(payload.answer_phrase or "").strip(),
-                        answer_outline=payload.answer_outline,
-                        evidence_chunk_id=chunk_uuid,
-                        evidence_text=payload.evidence_text,
-                        question_type_hint=payload.question_type_hint,
-                        question_angle=payload.question_angle,
-                        bloom_level=payload.bloom_level,
-                    )
-                )
+            mapped = cls._map_raw_candidates(raw_candidates, chunks)
+            if not mapped:
+                raise ValueError("유효한 정답 후보가 없습니다")
             return mapped
-        except (json.JSONDecodeError, ValidationError) as exc:
-            logger.warning("정답 후보 JSON 검증 실패: %s", exc)
+        except json.JSONDecodeError as exc:
+            logger.warning("정답 후보 JSON 파싱 실패: %s", exc)
             raise ValueError(f"정답 후보 추출 실패: {exc}") from exc
+
+    @classmethod
+    async def _supplement_candidates(
+        cls,
+        chunks: list[ChunkHit],
+        request: ExamGenerationRequest,
+        existing: list[AnswerCandidate],
+        missing: dict[str, int],
+    ) -> list[AnswerCandidate]:
+        """유형별 후보가 부족할 때 추가 추출."""
+        if not missing:
+            return existing
+
+        context = cls.format_chunks_for_prompt(chunks)
+        chunk_id_list = ", ".join(str(c.chunk_id) for c in chunks)
+        used_concepts = ", ".join(c.concept[:40] for c in existing[:20])
+        quota_lines = "\n".join(
+            f"- {TYPE_LABELS.get(t, t)} ({t}): {count}개"
+            for t, count in missing.items()
+        )
+
+        system_prompt = (
+            "당신은 대학 강의자료에서 시험 출제 가능한 정답 후보를 추출하는 전문가입니다. "
+            "지정된 유형만 생성하고 JSON만 출력하세요."
+        )
+        user_prompt = f"""부족한 유형의 출제 후보만 추가로 추출하세요.
+
+[추가 생성할 유형·개수]
+{quota_lines}
+
+[유형별 규칙]
+- short_answer / multiple_choice: answer_phrase 필수, question_angle=scenario, answer_outline=[]
+- essay_short / essay_long: answer_outline 2~5개 필수, definition/comparison/cause_effect/design/tradeoff 각도 사용
+
+[이미 추출된 concept — 중복 금지]
+{used_concepts or '없음'}
+
+[chunk id 목록]
+{chunk_id_list}
+
+[강의자료 chunks]
+{context}
+
+[출력 JSON]
+{{"candidates": [{{"concept": "...", "answer_phrase": null, "answer_outline": ["..."], "evidence_chunk_id": "uuid", "evidence_text": "...", "question_type_hint": "essay_short", "question_angle": "definition", "bloom_level": "understand"}}]}}"""
+
+        response = await openai_client.chat.completions.create(
+            model=settings.LLM_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=settings.EXAM_GEN_RETRY_TEMPERATURE,
+        )
+        raw = response.choices[0].message.content or "{}"
+        try:
+            data = json.loads(raw)
+            raw_candidates = data.get("candidates", [])
+            extra = cls._map_raw_candidates(raw_candidates, chunks)
+            logger.info(
+                "후보 보충: 요청 %s → 추가 %d개",
+                missing,
+                len(extra),
+            )
+            return existing + extra
+        except json.JSONDecodeError as exc:
+            logger.warning("보충 후보 JSON 파싱 실패: %s", exc)
+            return existing
+
+    @classmethod
+    async def _ensure_candidate_pool(
+        cls,
+        chunks: list[ChunkHit],
+        request: ExamGenerationRequest,
+        candidates: list[AnswerCandidate],
+    ) -> list[AnswerCandidate]:
+        """유형별 슬롯을 채울 수 있도록 후보 풀을 보충."""
+        pool = list(candidates)
+        for _ in range(2):
+            missing = missing_candidate_types(pool, request.question_types, request.question_count)
+            if not missing:
+                break
+            logger.warning("후보 유형 부족 — 보충 추출: %s", missing)
+            pool = await cls._supplement_candidates(chunks, request, pool, missing)
+            pool = deduplicate_candidates(pool)
+        return pool
 
     @classmethod
     def select_chunks_for_candidate(
@@ -589,6 +704,16 @@ chunk ids: {", ".join(chunk_ids)}"""
 
     @classmethod
     async def run_job(cls, db: AsyncSession, job: ExamGenerationJob) -> uuid.UUID:
+        """generation_mode에 따라 RAG 파이프라인 또는 FULL_CONTEXT 배치 생성."""
+        from app.services.exam_full_context_service import ExamFullContextService
+
+        request = ExamGenerationRequest.model_validate(job.options or {})
+        if request.generation_mode == "full_context":
+            return await ExamFullContextService.run_job(db, job)
+        return await cls._run_rag_job(db, job)
+
+    @classmethod
+    async def _run_rag_job(cls, db: AsyncSession, job: ExamGenerationJob) -> uuid.UUID:
         """RAG → 정답 후보 추출 → 후보별 생성·검증 → DB 저장."""
         from app.services.job_service import JobService
 
@@ -619,6 +744,7 @@ chunk ids: {", ".join(chunk_ids)}"""
             all_chunks, request, candidate_count
         )
         candidates = deduplicate_candidates(raw_candidates)
+        candidates = await cls._ensure_candidate_pool(all_chunks, request, candidates)
         logger.info(
             "Job %s: 후보 추출 %d개 → 중복 제거 후 %d개",
             job_id,
@@ -629,6 +755,8 @@ chunk ids: {", ".join(chunk_ids)}"""
             raise RuntimeError("출제 가능한 정답 후보를 추출하지 못했습니다.")
 
         title = request.title or f"생성 문제집 {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')}"
+        if not title.startswith("[RAG]"):
+            title = f"[RAG] {title}"
         exam = GeneratedExam(
             job_id=job.id,
             user_id=job.user_id,
