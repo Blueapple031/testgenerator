@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -8,11 +8,15 @@ from app.dependencies import get_current_user
 from app.infra import minio_client
 from app.models.user import User
 from app.schemas.document import (
+    ChunkSearchResult,
     DocumentDownloadResponse,
     DocumentResponse,
+    DocumentSearchRequest,
+    DocumentSearchResponse,
     DocumentUploadResponse,
 )
 from app.services.document_service import DocumentService
+from app.services.rag_service import RagService
 from app.workers.document_indexing import index_document
 
 router = APIRouter()
@@ -96,7 +100,45 @@ async def get_document_toc(document_id: uuid.UUID):
     raise NotImplementedError
 
 
-@router.post("/{document_id}/search")
-async def search_document(document_id: uuid.UUID):
-    """RAG 검색 테스트 — Phase 3에서 구현"""
-    raise NotImplementedError
+@router.post("/{document_id}/search", response_model=DocumentSearchResponse)
+async def search_document(
+    document_id: uuid.UUID,
+    body: DocumentSearchRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """RAG 검색 테스트 — query embedding → pgvector cosine 유사도 topK chunk 반환."""
+    document = await DocumentService.get(db, user.id, document_id)
+    if document.status != "READY":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="인덱싱이 완료된(READY) 문서만 검색할 수 있습니다.",
+        )
+
+    hits = await RagService.search(
+        db,
+        user.id,
+        [document_id],
+        body.query,
+        top_k=body.top_k,
+        page_start=body.page_start,
+        page_end=body.page_end,
+    )
+
+    return DocumentSearchResponse(
+        query=body.query,
+        document_id=document_id,
+        top_k=body.top_k,
+        results=[
+            ChunkSearchResult(
+                chunk_id=hit.chunk_id,
+                chunk_index=hit.chunk_index,
+                content=hit.content,
+                page_start=hit.page_start,
+                page_end=hit.page_end,
+                extraction_method=hit.extraction_method,
+                similarity=hit.similarity,
+            )
+            for hit in hits
+        ],
+    )

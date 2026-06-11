@@ -54,3 +54,43 @@ export interface StudyDocument {
   page_count: number | null;
   created_at: string;
 }
+
+export type QuestionType =
+  | "multiple_choice"
+  | "short_answer"
+  | "essay_short"
+  | "essay_long";
+
+export interface QuestionChoice {
+  label: string;
+  text: string;
+  isAnswer: boolean;
+}
+
+export interface GeneratedQuestion {
+  id: string;
+  number: number;
+  question_type: QuestionType;
+  difficulty: string;
+  bloom_level: string | null;
+  stem: string;
+  choices: QuestionChoice[] | null;
+  answer: string;
+  explanation: string | null;
+  concepts: string[];
+}
+
+export interface GeneratedExam {
+  id: string;
+  title: string;
+  question_count: number;
+  questions: GeneratedQuestion[];
+  created_at: string;
+}
+
+export interface ExamListItem {
+  id: string;
+  title: string;
+  question_count: number;
+  created_at: string;
+}

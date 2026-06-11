@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     VISION_MIN_DRAWINGS: int = 10  # 벡터 드로잉이 이 수 이상이면 다이어그램으로 보고 vision 적용
     VISION_REQUEST_DELAY_MS: int = 300  # 페이지 간 vision 호출 간격
 
+    # RAG
+    RAG_DEFAULT_TOP_K: int = 10
+    RAG_MAX_TOP_K: int = 30
+    EXAM_GEN_RAG_TOP_K: int = 12  # 문제 생성 시 LLM에 전달할 chunk 수
+
+    # Exam generation
+    EXAM_MAX_QUESTION_COUNT: int = 30
+
     # Limits
     EXAM_MAX_UPLOAD_BYTES: int = 52_428_800  # 50MB
     EXAM_CHUNK_SIZE: int = 800

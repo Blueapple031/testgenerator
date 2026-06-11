@@ -25,3 +25,49 @@ body {
     "Segoe UI",
     sans-serif;
 }
+
+/* Phase 5: 문제집 브라우저 인쇄 */
+@media print {
+  @page {
+    margin: 18mm 15mm;
+    size: A4;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .exam-print-root {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .exam-question {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 1.25rem;
+  }
+
+  .exam-header {
+    margin-bottom: 1.5rem;
+  }
+
+  .exam-answer {
+    break-inside: avoid;
+  }
+
+  /* 화면에서는 숨기고 인쇄할 때만 정답 표시 */
+  .exam-answer-print-only {
+    display: block !important;
+  }
+}
+
+/* 인쇄 전용 정답 블록: 화면에서는 숨김 */
+.exam-answer-print-only {
+  display: none;
+}
