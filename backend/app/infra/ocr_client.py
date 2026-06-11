@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 UPSTAGE_OCR_URL = "https://api.upstage.ai/v1/document-digitization"
 RENDER_DPI = 200
 HTTP_TIMEOUT = 60.0
+# 백오프 상한(초). Retry-After 헤더가 없을 때 지수 백오프의 최대 대기 시간.
+MAX_BACKOFF_SECONDS = 30.0
 
 
 def _render_page_png(pdf_bytes: bytes, page_number: int) -> bytes:
@@ -50,15 +52,46 @@ def _parse_ocr_text(payload: dict) -> str:
     return ""
 
 
+def _retry_delay(response: httpx.Response, attempt: int) -> float:
+    """429/5xx 응답에 대한 대기 시간을 계산한다. Retry-After 헤더를 우선 존중."""
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
+        try:
+            return min(float(retry_after), MAX_BACKOFF_SECONDS)
+        except ValueError:
+            pass
+    return min(2.0**attempt, MAX_BACKOFF_SECONDS)
+
+
 async def _ocr_image(client: httpx.AsyncClient, image: bytes) -> str:
-    response = await client.post(
-        UPSTAGE_OCR_URL,
-        headers={"Authorization": f"Bearer {settings.UPSTAGE_API_KEY}"},
-        files={"document": ("page.png", image, "image/png")},
-        data={"model": "ocr"},
-    )
-    response.raise_for_status()
-    return _parse_ocr_text(response.json())
+    """이미지 1장을 Upstage OCR로 인식한다. 429/5xx는 백오프 후 재시도한다."""
+    last_response: httpx.Response | None = None
+    for attempt in range(settings.OCR_MAX_RETRIES):
+        response = await client.post(
+            UPSTAGE_OCR_URL,
+            headers={"Authorization": f"Bearer {settings.UPSTAGE_API_KEY}"},
+            files={"document": ("page.png", image, "image/png")},
+            data={"model": "ocr"},
+        )
+        last_response = response
+        if response.status_code == 429 or response.status_code >= 500:
+            delay = _retry_delay(response, attempt)
+            logger.warning(
+                "Upstage OCR %d 응답 — %.1fs 후 재시도 (%d/%d)",
+                response.status_code,
+                delay,
+                attempt + 1,
+                settings.OCR_MAX_RETRIES,
+            )
+            await asyncio.sleep(delay)
+            continue
+        response.raise_for_status()
+        return _parse_ocr_text(response.json())
+
+    # 재시도 모두 소진 — 마지막 응답으로 예외를 발생시킨다.
+    assert last_response is not None
+    last_response.raise_for_status()
+    return ""
 
 
 async def ocr_pages(pdf_bytes: bytes, pages: list[PageText]) -> list[PageText]:
@@ -73,9 +106,13 @@ async def ocr_pages(pdf_bytes: bytes, pages: list[PageText]) -> list[PageText]:
 
     loop = asyncio.get_running_loop()
     ocr_text_by_page: dict[int, str] = {}
+    request_delay = settings.OCR_REQUEST_DELAY_MS / 1000.0
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        for page in sparse_pages:
+        for index, page in enumerate(sparse_pages):
+            # 레이트 리밋 완화를 위해 페이지 간 호출 간격을 둔다(첫 요청 제외).
+            if index > 0 and request_delay > 0:
+                await asyncio.sleep(request_delay)
             try:
                 image = await loop.run_in_executor(
                     None, functools.partial(_render_page_png, pdf_bytes, page.page_number)

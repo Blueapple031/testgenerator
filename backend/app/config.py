@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     # OCR
     OCR_ENABLED: bool = True
     UPSTAGE_API_KEY: str = ""
+    OCR_MAX_RETRIES: int = 5  # 429/5xx 재시도 횟수
+    OCR_REQUEST_DELAY_MS: int = 600  # 페이지 간 호출 간격(레이트 리밋 완화)
 
     # Limits
     EXAM_MAX_UPLOAD_BYTES: int = 52_428_800  # 50MB

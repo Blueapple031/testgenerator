@@ -8,8 +8,11 @@ from dataclasses import dataclass
 
 import fitz
 
-# 페이지당 이 글자 수 미만이면 텍스트 레이어가 부족한 것으로 보고 OCR 후보로 본다.
-MIN_CHARS_PER_PAGE = 20
+# 페이지당 "의미 있는 글자"(한글/영숫자) 수가 이 값 미만이면
+# 텍스트 레이어가 부족한 것으로 보고 OCR 후보로 본다.
+# 불릿(•)·공백·기호만 잔뜩 있는 슬라이드를 sparse로 정확히 잡기 위해
+# 단순 길이가 아니라 의미 있는 글자 수를 기준으로 한다.
+MIN_MEANINGFUL_CHARS = 10
 
 
 @dataclass
@@ -33,9 +36,14 @@ class ExtractionService:
         return pages, page_count
 
     @staticmethod
-    def is_page_sparse(page: PageText) -> bool:
-        """해당 페이지가 OCR 대상(텍스트 부족)인지 여부."""
-        return len(page.text) < MIN_CHARS_PER_PAGE
+    def _meaningful_char_count(text: str) -> int:
+        """한글·영숫자 등 실제 의미 있는 글자 수. 불릿·공백·기호는 제외한다."""
+        return sum(1 for char in text if char.isalnum())
+
+    @classmethod
+    def is_page_sparse(cls, page: PageText) -> bool:
+        """해당 페이지가 OCR 대상(의미 있는 텍스트 부족)인지 여부."""
+        return cls._meaningful_char_count(page.text) < MIN_MEANINGFUL_CHARS
 
     @classmethod
     def needs_ocr(cls, pages: list[PageText]) -> bool:
