@@ -55,6 +55,16 @@ async def get_document(
     return await DocumentService.get(db, user.id, document_id)
 
 
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """문서 삭제 (연관 청크·목차·족보 스타일·MinIO 원본 포함)"""
+    await DocumentService.delete(db, user.id, document_id)
+
+
 @router.get("/{document_id}/download", response_model=DocumentDownloadResponse)
 async def download_document(
     document_id: uuid.UUID,

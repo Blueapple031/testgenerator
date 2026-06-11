@@ -85,7 +85,7 @@ export default function DocumentsPage() {
         ) : (
           <div className="space-y-2">
             {documents.map((doc) => (
-              <DocumentStatusCard key={doc.id} doc={doc} />
+              <DocumentStatusCard key={doc.id} doc={doc} onDeleted={loadDocuments} />
             ))}
           </div>
         )}

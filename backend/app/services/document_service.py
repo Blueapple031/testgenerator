@@ -1,17 +1,21 @@
-"""PDF 업로드, 문서 조회 비즈니스 로직."""
+"""PDF 업로드, 문서 조회·삭제 비즈니스 로직."""
 
+import logging
 import uuid
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.infra import minio_client
-from app.models.document import StudyDocument
+from app.models.document import DocumentChunk, DocumentToc, StudyDocument
+from app.models.exam_style import ExamStyleProfile
 
 ALLOWED_DOCUMENT_TYPES = {"lecture", "past_exam"}
 PDF_CONTENT_TYPE = "application/pdf"
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentService:
@@ -100,3 +104,30 @@ class DocumentService:
                 detail="문서를 찾을 수 없습니다.",
             )
         return document
+
+    @classmethod
+    async def delete(
+        cls,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        document_id: uuid.UUID,
+    ) -> None:
+        """문서와 연관 데이터(청크, 목차, 족보 스타일, MinIO 원본)를 삭제한다."""
+        document = await cls.get(db, user_id, document_id)
+
+        await db.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document_id))
+        await db.execute(delete(DocumentToc).where(DocumentToc.document_id == document_id))
+        await db.execute(
+            delete(ExamStyleProfile).where(ExamStyleProfile.document_id == document_id)
+        )
+        await db.delete(document)
+        await db.commit()
+
+        try:
+            await minio_client.delete_file(document.minio_key)
+        except Exception:
+            logger.exception(
+                "MinIO 파일 삭제 실패 (document_id=%s, key=%s)",
+                document_id,
+                document.minio_key,
+            )
