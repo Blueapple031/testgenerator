@@ -5,13 +5,14 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import ExamPrintView from "@/components/ExamPrintView";
-import { api, type GeneratedExam } from "@/lib/api";
+import { api, type GeneratedExam, type QuestionFeedback } from "@/lib/api";
 
 export default function ExamDetailPage() {
   const params = useParams();
   const examId = params.examId as string;
 
   const [exam, setExam] = useState<GeneratedExam | null>(null);
+  const [feedbackByQuestion, setFeedbackByQuestion] = useState<Record<string, QuestionFeedback>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAnswers, setShowAnswers] = useState(false);
@@ -21,14 +22,24 @@ export default function ExamDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.get<GeneratedExam>(`/exams/${examId}`);
-      setExam(data);
+      const [examData, feedbackData] = await Promise.all([
+        api.get<GeneratedExam>(`/exams/${examId}`),
+        api.get<{ feedback: QuestionFeedback[] }>(`/exams/${examId}/feedback`).catch(() => ({ feedback: [] })),
+      ]);
+      setExam(examData);
+      setFeedbackByQuestion(
+        Object.fromEntries(feedbackData.feedback.map((item) => [item.question_id, item])),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "시험을 불러오지 못했습니다.");
     } finally {
       setLoading(false);
     }
   }, [examId]);
+
+  const handleFeedbackChange = useCallback((feedback: QuestionFeedback) => {
+    setFeedbackByQuestion((prev) => ({ ...prev, [feedback.question_id]: feedback }));
+  }, []);
 
   useEffect(() => {
     loadExam();
@@ -99,6 +110,8 @@ export default function ExamDetailPage() {
           exam={exam}
           showAnswers={showAnswers}
           printAnswersOnly={printWithAnswers && !showAnswers}
+          feedbackByQuestion={feedbackByQuestion}
+          onFeedbackChange={handleFeedbackChange}
         />
       </main>
     </>

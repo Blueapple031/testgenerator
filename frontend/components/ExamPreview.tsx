@@ -1,6 +1,7 @@
 "use client";
 
-import type { GeneratedExam, GeneratedQuestion, QuestionType } from "@/lib/api";
+import QuestionFeedbackPanel from "@/components/QuestionFeedbackPanel";
+import type { GeneratedExam, GeneratedQuestion, QuestionFeedback, QuestionType } from "@/lib/api";
 
 const TYPE_LABELS: Record<QuestionType, string> = {
   multiple_choice: "객관식",
@@ -16,13 +17,19 @@ const DIFFICULTY_LABELS: Record<string, string> = {
 };
 
 function QuestionBlock({
+  examId,
   question,
   showAnswers,
   printAnswersOnly,
+  feedbackByQuestion,
+  onFeedbackChange,
 }: {
+  examId: string;
   question: GeneratedQuestion;
   showAnswers: boolean;
   printAnswersOnly: boolean;
+  feedbackByQuestion?: Record<string, QuestionFeedback>;
+  onFeedbackChange?: (feedback: QuestionFeedback) => void;
 }) {
   const showAnswerBlock = showAnswers || printAnswersOnly;
   const answerClass = printAnswersOnly && !showAnswers
@@ -79,6 +86,15 @@ function QuestionBlock({
           )}
         </div>
       )}
+
+      {showAnswers && (
+        <QuestionFeedbackPanel
+          examId={examId}
+          questionId={question.id}
+          initialFeedback={feedbackByQuestion?.[question.id]}
+          onFeedbackChange={onFeedbackChange}
+        />
+      )}
     </article>
   );
 }
@@ -87,12 +103,16 @@ interface ExamPreviewProps {
   exam: GeneratedExam;
   showAnswers?: boolean;
   printAnswersOnly?: boolean;
+  feedbackByQuestion?: Record<string, QuestionFeedback>;
+  onFeedbackChange?: (feedback: QuestionFeedback) => void;
 }
 
 export default function ExamPreview({
   exam,
   showAnswers = false,
   printAnswersOnly = false,
+  feedbackByQuestion,
+  onFeedbackChange,
 }: ExamPreviewProps) {
   return (
     <div className="exam-preview space-y-8">
@@ -107,9 +127,12 @@ export default function ExamPreview({
         {exam.questions.map((q) => (
           <QuestionBlock
             key={q.id}
+            examId={exam.id}
             question={q}
             showAnswers={showAnswers}
             printAnswersOnly={printAnswersOnly}
+            feedbackByQuestion={feedbackByQuestion}
+            onFeedbackChange={onFeedbackChange}
           />
         ))}
       </div>

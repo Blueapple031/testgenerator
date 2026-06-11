@@ -4,7 +4,7 @@ from app.models.document import StudyDocument, DocumentChunk, DocumentToc
 from app.models.exam_style import ExamStyleProfile
 from app.models.exam import ExamGenerationJob, GeneratedExam, GeneratedQuestion
 from app.models.concept import QuestionConcept
-from app.models.answer import UserAnswer, QuestionInteraction, UserConceptMastery
+from app.models.answer import UserAnswer, QuestionInteraction, QuestionFeedback, UserConceptMastery
 
 __all__ = [
     "User",
@@ -19,5 +19,6 @@ __all__ = [
     "QuestionConcept",
     "UserAnswer",
     "QuestionInteraction",
+    "QuestionFeedback",
     "UserConceptMastery",
 ]

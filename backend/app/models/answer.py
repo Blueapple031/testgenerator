@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Float, Boolean, Text, DateTime, ForeignKey, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import String, Integer, Float, Boolean, Text, DateTime, ForeignKey, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -33,6 +33,23 @@ class QuestionInteraction(Base):
     event_type: Mapped[str] = mapped_column(String(30), nullable=False)  # start, submit, hint, change_answer, leave
     event_data: Mapped[str | None] = mapped_column(Text)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class QuestionFeedback(Base):
+    __tablename__ = "question_feedback"
+    __table_args__ = (UniqueConstraint("user_id", "question_id", name="uq_question_feedback_user_question"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    exam_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("generated_exam.id"), nullable=False, index=True)
+    question_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("generated_question.id"), nullable=False, index=True)
+    rating: Mapped[str] = mapped_column(String(10), nullable=False)  # up | down
+    reason_tags: Mapped[list | None] = mapped_column(JSONB)
+    comment: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class UserConceptMastery(Base):

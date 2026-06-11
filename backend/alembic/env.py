@@ -1,5 +1,10 @@
 import asyncio
+import sys
 from logging.config import fileConfig
+from pathlib import Path
+
+# Alembic이 env.py를 로드할 때 CWD/prepend_sys_path와 무관하게 app 패키지를 찾도록 한다.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from alembic import context
 from sqlalchemy import pool

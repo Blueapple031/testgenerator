@@ -52,6 +52,30 @@ export const api = {
   upload,
 };
 
+export type FeedbackRating = "up" | "down";
+
+export type FeedbackReasonTag =
+  | "answer_explanation_error"
+  | "unclear_stem"
+  | "off_topic"
+  | "wrong_difficulty"
+  | "poor_choices";
+
+export interface QuestionFeedback {
+  id: string;
+  exam_id: string;
+  question_id: string;
+  rating: FeedbackRating;
+  reason_tags: FeedbackReasonTag[];
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExamFeedbackListResponse {
+  feedback: QuestionFeedback[];
+}
+
 export type DocumentType = "lecture" | "past_exam";
 
 export interface StudyDocument {
