@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # LLM
     OPENAI_API_KEY: str = ""
-    LLM_MODEL: str = "gpt-4o"
+    LLM_MODEL: str = "gpt-4o-mini"
 
     # Embedding
     EMBEDDING_PROVIDER: str = "openai"  # "local" | "openai"
@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # Vision (그림/다이어그램 포함 페이지를 멀티모달 LLM으로 설명)
     VISION_ENABLED: bool = True
-    VISION_MODEL: str = ""  # 비우면 LLM_MODEL(gpt-4o)을 사용
+    VISION_MODEL: str = ""  # 비우면 LLM_MODEL을 사용
     VISION_MIN_DRAWINGS: int = 10  # 벡터 드로잉이 이 수 이상이면 다이어그램으로 보고 vision 적용
     VISION_REQUEST_DELAY_MS: int = 300  # 페이지 간 vision 호출 간격
 
@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     RAG_DEFAULT_TOP_K: int = 10
     RAG_MAX_TOP_K: int = 30
     EXAM_GEN_RAG_TOP_K: int = 12  # 문제 생성 시 LLM에 전달할 chunk 수
+
+    # Exam generation pipeline (dedup / candidate-based)
+    EXAM_GEN_CANDIDATE_MULTIPLIER: int = 2
+    EXAM_GEN_MIN_CANDIDATE_COUNT: int = 12
+    EXAM_GEN_MAX_RETRIES: int = 3
+    EXAM_GEN_STEM_SIMILARITY_THRESHOLD: float = 0.85
+    EXAM_GEN_CONCEPT_SIMILARITY_THRESHOLD: float = 0.88
+    EXAM_GEN_BASE_TEMPERATURE: float = 0.7
+    EXAM_GEN_RETRY_TEMPERATURE: float = 0.9
+    EXAM_GEN_MAX_CONTEXT_CHUNKS: int = 3
+    EXAM_GEN_STEM_FALLBACK_RATIO: float = 0.85  # difflib fallback when embedding unavailable
 
     # Exam generation
     EXAM_MAX_QUESTION_COUNT: int = 30
