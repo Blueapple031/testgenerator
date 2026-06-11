@@ -43,6 +43,16 @@ services:
     volumes:
       - minio_dev:/data
 
+  adminer:
+    image: adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: pepa-linha
+
 volumes:
   postgres_dev:
   minio_dev:
