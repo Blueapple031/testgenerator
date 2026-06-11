@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -13,22 +13,25 @@ from app.schemas.document import (
     DocumentUploadResponse,
 )
 from app.services.document_service import DocumentService
+from app.workers.document_indexing import index_document
 
 router = APIRouter()
 
 
 @router.post("", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     document_type: str = Form(...),
     workspace_id: uuid.UUID | None = Form(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """PDF 업로드 (type: lecture / past_exam)"""
+    """PDF 업로드 (type: lecture / past_exam) 후 인덱싱을 백그라운드로 시작한다."""
     document = await DocumentService.upload(
         db, user.id, file, document_type, workspace_id
     )
+    background_tasks.add_task(index_document, document.id)
     return document
 
 
@@ -62,6 +65,19 @@ async def download_document(
     document = await DocumentService.get(db, user.id, document_id)
     url = await minio_client.get_presigned_url(document.minio_key)
     return DocumentDownloadResponse(url=url)
+
+
+@router.post("/{document_id}/reindex", status_code=status.HTTP_202_ACCEPTED)
+async def reindex_document(
+    document_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """문서 인덱싱을 다시 실행한다 (추출 → chunking → embedding → pgvector)."""
+    document = await DocumentService.get(db, user.id, document_id)
+    background_tasks.add_task(index_document, document.id)
+    return {"document_id": str(document.id), "status": "reindexing"}
 
 
 @router.get("/{document_id}/toc")
