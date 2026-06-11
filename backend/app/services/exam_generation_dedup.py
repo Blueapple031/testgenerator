@@ -7,6 +7,7 @@ from difflib import SequenceMatcher
 from app.config import settings
 from app.schemas.exam import GeneratedQuestionPayload
 from app.schemas.exam_generation import (
+    ESSAY_TYPES,
     AnswerCandidate,
     GeneratedQuestionRecord,
     QuestionValidationResult,
@@ -14,9 +15,13 @@ from app.schemas.exam_generation import (
 
 
 def normalize_text(text: str) -> str:
-    """비교용 문자열 정규화: 소문자, 알phanumeric+한글만 유지."""
+    """비교용 문자열 정규화: 소문자, alphanumeric+한글만 유지."""
     lowered = text.lower().strip()
     return re.sub(r"[\s\W_]+", "", lowered, flags=re.UNICODE)
+
+
+def is_essay_type(question_type: str) -> bool:
+    return question_type in ESSAY_TYPES
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -41,28 +46,50 @@ def _concepts_overlap(a: str, b: str) -> bool:
     return SequenceMatcher(None, na, nb).ratio() >= settings.EXAM_GEN_CONCEPT_SIMILARITY_THRESHOLD
 
 
+def _candidate_dedup_key(candidate: AnswerCandidate) -> str:
+    if candidate.question_type_hint in ESSAY_TYPES:
+        return f"{normalize_text(candidate.concept)}:{candidate.question_angle}"
+    phrase = normalize_text(candidate.answer_phrase or candidate.concept)
+    return f"{normalize_text(candidate.concept)}:{phrase}"
+
+
+def outline_coverage(answer: str, outline: list[str]) -> float:
+    """answer가 outline 요지를 얼마나 포함하는지 (0~1)."""
+    if not outline:
+        return 1.0
+    answer_norm = normalize_text(answer)
+    hits = 0
+    for point in outline:
+        point_norm = normalize_text(point)
+        if not point_norm:
+            continue
+        window = min(12, len(point_norm))
+        if point_norm in answer_norm or point_norm[:window] in answer_norm:
+            hits += 1
+            continue
+        for token in point.split():
+            if len(token) >= 2 and normalize_text(token) in answer_norm:
+                hits += 1
+                break
+    return hits / len(outline)
+
+
 def deduplicate_candidates(candidates: list[AnswerCandidate]) -> list[AnswerCandidate]:
-    """정답 phrase·concept·chunk 기준으로 후보 중복 제거."""
-    seen_answers: set[str] = set()
+    """유형별 키(concept+angle 또는 concept+phrase)로 후보 중복 제거."""
+    seen_keys: set[str] = set()
     seen_concepts: set[str] = set()
-    seen_chunk_concepts: set[tuple[str, str]] = set()
     result: list[AnswerCandidate] = []
 
     for candidate in candidates:
-        norm_answer = normalize_text(candidate.answer_phrase)
-        norm_concept = normalize_text(candidate.concept)
-        chunk_key = (str(candidate.evidence_chunk_id), norm_concept)
-
-        if norm_answer in seen_answers:
+        key = _candidate_dedup_key(candidate)
+        if key in seen_keys:
             continue
         if any(_concepts_overlap(candidate.concept, prev) for prev in seen_concepts):
-            continue
-        if chunk_key in seen_chunk_concepts:
-            continue
+            if candidate.question_type_hint not in ESSAY_TYPES:
+                continue
 
-        seen_answers.add(norm_answer)
-        seen_concepts.add(norm_concept)
-        seen_chunk_concepts.add(chunk_key)
+        seen_keys.add(key)
+        seen_concepts.add(normalize_text(candidate.concept))
         result.append(candidate)
 
     return result
@@ -72,29 +99,37 @@ def select_candidate_for_question(
     candidates: list[AnswerCandidate],
     used_candidate_ids: set[str],
     chunk_usage_count: dict[str, int],
+    question_type: str,
+    used_angles: set[str] | None = None,
 ) -> AnswerCandidate | None:
-    """미사용 후보 중 evidence chunk 사용 횟수가 적은 후보를 우선 선택."""
-    available = [c for c in candidates if c.candidate_id not in used_candidate_ids]
+    """요청 유형과 일치하는 미사용 후보 우선 선택."""
+    used_angles = used_angles or set()
+    available = [
+        c
+        for c in candidates
+        if c.candidate_id not in used_candidate_ids and c.question_type_hint == question_type
+    ]
+    if not available:
+        available = [c for c in candidates if c.candidate_id not in used_candidate_ids]
+
     if not available:
         return None
 
-    def sort_key(c: AnswerCandidate) -> tuple[int, str]:
-        usage = chunk_usage_count.get(str(c.evidence_chunk_id), 0)
-        return (usage, c.candidate_id)
+    def sort_key(c: AnswerCandidate) -> tuple[int, int, str]:
+        type_match = 0 if c.question_type_hint == question_type else 1
+        angle_used = 1 if c.question_angle in used_angles else 0
+        chunk_usage = chunk_usage_count.get(str(c.evidence_chunk_id), 0)
+        return (type_match, angle_used, chunk_usage, c.candidate_id)
 
     return min(available, key=sort_key)
 
 
-def validate_generated_question(
+def _validate_short_answer(
     payload: GeneratedQuestionPayload,
     candidate: AnswerCandidate,
     evidence_content: str,
 ) -> QuestionValidationResult:
-    """규칙 기반 문제·정답 정합성 검증."""
-    if not payload.stem or len(payload.stem.strip()) < 5:
-        return QuestionValidationResult(is_valid=False, reason="stem이 비어 있거나 너무 짧음")
-
-    norm_expected = normalize_text(candidate.answer_phrase)
+    norm_expected = normalize_text(candidate.answer_phrase or candidate.concept)
     norm_actual = normalize_text(payload.answer)
     if not norm_actual:
         return QuestionValidationResult(is_valid=False, reason="정답이 비어 있음")
@@ -111,7 +146,7 @@ def validate_generated_question(
         )
 
     evidence_lower = evidence_content.lower()
-    phrase_lower = candidate.answer_phrase.lower().strip()
+    phrase_lower = (candidate.answer_phrase or "").lower().strip()
     if phrase_lower and phrase_lower not in evidence_lower:
         snippet = candidate.evidence_text.lower().strip()
         if snippet and snippet[: min(20, len(snippet))] not in evidence_lower:
@@ -119,6 +154,65 @@ def validate_generated_question(
                 is_valid=False,
                 reason="근거 chunk에서 정답 또는 근거 문장을 확인할 수 없음",
             )
+    return QuestionValidationResult(is_valid=True, reason="단답 검증 통과")
+
+
+def _validate_essay(
+    payload: GeneratedQuestionPayload,
+    candidate: AnswerCandidate,
+) -> QuestionValidationResult:
+    min_len = (
+        settings.EXAM_GEN_ESSAY_LONG_MIN_ANSWER_LEN
+        if payload.question_type == "essay_long"
+        else settings.EXAM_GEN_ESSAY_SHORT_MIN_ANSWER_LEN
+    )
+    answer = payload.answer.strip()
+    if len(answer) < min_len:
+        return QuestionValidationResult(
+            is_valid=False,
+            reason=f"서술형 정답이 너무 짧음 (최소 {min_len}자)",
+        )
+
+    norm_answer = normalize_text(answer)
+    norm_concept = normalize_text(candidate.concept)
+    if norm_answer == norm_concept or len(norm_answer) < 15:
+        return QuestionValidationResult(
+            is_valid=False,
+            reason="정답이 개념명 한 줄뿐이며 서술형 요구와 불일치",
+        )
+
+    if candidate.answer_outline:
+        coverage = outline_coverage(answer, candidate.answer_outline)
+        if coverage < settings.EXAM_GEN_OUTLINE_COVERAGE_RATIO:
+            return QuestionValidationResult(
+                is_valid=False,
+                reason=f"answer_outline 요지 반영 부족 ({coverage:.0%})",
+            )
+
+    essay_markers = ("설명", "논하", "서술", "비교", "분석", "论述")
+    if any(m in payload.stem for m in essay_markers) and len(answer) < min_len:
+        return QuestionValidationResult(is_valid=False, reason="stem은 서술형인데 정답이 짧음")
+
+    return QuestionValidationResult(is_valid=True, reason="서술형 검증 통과")
+
+
+def validate_generated_question(
+    payload: GeneratedQuestionPayload,
+    candidate: AnswerCandidate,
+    evidence_content: str,
+) -> QuestionValidationResult:
+    """유형별 규칙 기반 문제·정답 정합성 검증."""
+    if not payload.stem or len(payload.stem.strip()) < 5:
+        return QuestionValidationResult(is_valid=False, reason="stem이 비어 있거나 너무 짧음")
+
+    if is_essay_type(payload.question_type):
+        result = _validate_essay(payload, candidate)
+        if not result.is_valid:
+            return result
+    else:
+        result = _validate_short_answer(payload, candidate, evidence_content)
+        if not result.is_valid:
+            return result
 
     if payload.question_type == "multiple_choice":
         if not payload.choices or len(payload.choices) < 2:
@@ -128,6 +222,7 @@ def validate_generated_question(
         if len(choice_texts) != len(set(choice_texts)):
             return QuestionValidationResult(is_valid=False, reason="choices에 중복 선택지 존재")
 
+        norm_actual = normalize_text(payload.answer)
         answer_in_choices = any(
             normalize_text(c.get("text", "")) == norm_actual
             or norm_actual in normalize_text(c.get("text", ""))
@@ -151,8 +246,15 @@ def is_duplicate_question(
     norm_new_answer = normalize_text(payload.answer)
 
     for record in previous:
+        if (
+            candidate.question_angle
+            and record.question_angle == candidate.question_angle
+            and any(_concepts_overlap(candidate.concept, c) for c in record.concepts)
+        ):
+            return True, "동일 concept+angle 중복"
+
         norm_existing_answer = normalize_text(record.answer)
-        if norm_new_answer == norm_existing_answer:
+        if norm_new_answer == norm_existing_answer and not is_essay_type(payload.question_type):
             for existing_concept in record.concepts or [candidate.concept]:
                 if _concepts_overlap(candidate.concept, existing_concept):
                     return True, "동일 정답+유사 concept"
@@ -181,7 +283,6 @@ def is_duplicate_question(
 
 
 def _stems_are_similar(stem_a: str, stem_b: str) -> bool:
-    """difflib ratio + 긴 공통 부분 문자열(한국어 유사 stem 대응)."""
     na, nb = normalize_text(stem_a), normalize_text(stem_b)
     if SequenceMatcher(None, na, nb).ratio() >= settings.EXAM_GEN_STEM_FALLBACK_RATIO:
         return True
@@ -196,7 +297,6 @@ def _stems_are_similar(stem_a: str, stem_b: str) -> bool:
 
 
 def resolve_chunk_id(raw_id: str, valid_ids: set[uuid.UUID]) -> uuid.UUID | None:
-    """LLM이 반환한 chunk id를 실제 UUID로 매핑."""
     try:
         parsed = uuid.UUID(raw_id)
         if parsed in valid_ids:

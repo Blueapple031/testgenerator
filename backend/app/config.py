@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     EXAM_GEN_RETRY_TEMPERATURE: float = 0.9
     EXAM_GEN_MAX_CONTEXT_CHUNKS: int = 3
     EXAM_GEN_STEM_FALLBACK_RATIO: float = 0.85  # difflib fallback when embedding unavailable
+    EXAM_GEN_ESSAY_SHORT_MIN_ANSWER_LEN: int = 80
+    EXAM_GEN_ESSAY_LONG_MIN_ANSWER_LEN: int = 150
+    EXAM_GEN_OUTLINE_COVERAGE_RATIO: float = 0.5
 
     # Exam generation
     EXAM_MAX_QUESTION_COUNT: int = 30

@@ -23,10 +23,12 @@ from app.schemas.exam_generation import (
     AnswerCandidate,
     AnswerCandidatePayload,
     GeneratedQuestionRecord,
+    QUESTION_ANGLES,
 )
 from app.services.exam_generation_dedup import (
     deduplicate_candidates,
     is_duplicate_question,
+    is_essay_type,
     resolve_chunk_id,
     select_candidate_for_question,
     validate_generated_question,
@@ -42,11 +44,21 @@ TYPE_LABELS = {
     "essay_long": "긴 서술형",
 }
 
+ANGLE_LABELS = {
+    "definition": "개념 정의 및 핵심 설명",
+    "comparison": "두 개념/방식 비교",
+    "scenario": "구체적 시나리오·사례 적용",
+    "cause_effect": "원인과 결과 분석",
+    "design": "아키텍처·설계 선택",
+    "tradeoff": "장단점·트레이드오프",
+}
+
 
 @dataclass
 class _JobGenerationState:
     chunk_usage_count: dict[str, int] = field(default_factory=dict)
     used_candidate_ids: set[str] = field(default_factory=set)
+    used_angles: set[str] = field(default_factory=set)
     generated_questions: list[GeneratedQuestionRecord] = field(default_factory=list)
 
 
@@ -172,20 +184,20 @@ class ExamGenerationService:
         context = cls.format_chunks_for_prompt(chunks)
         chunk_id_list = ", ".join(str(c.chunk_id) for c in chunks)
         types = ", ".join(request.question_types)
+        angles = ", ".join(sorted(QUESTION_ANGLES))
 
         system_prompt = (
             "당신은 대학 강의자료에서 시험 출제 가능한 정답 후보를 추출하는 전문가입니다. "
-            "제공된 chunk만 근거로 사용하고 JSON만 출력하세요."
+            "문제 유형별로 다른 형식의 후보를 만들고 JSON만 출력하세요."
         )
-        user_prompt = f"""다음 강의자료 chunk에서 출제 가능한 정답 후보를 {candidate_count}개 추출하세요.
+        user_prompt = f"""다음 강의자료 chunk에서 출제 후보 {candidate_count}개를 추출하세요.
 
-[요구사항]
-- 서로 다른 핵심 개념(concept)을 다룰 것
-- answer_phrase는 chunk 원문에 근거한 짧은 정답
-- evidence_chunk_id는 아래 chunk_id 중 하나
-- evidence_text는 해당 chunk에서 정답 근거가 되는 문장
-- question_type_hint: {types} 중 하나
-- bloom_level: remember|understand|apply|analyze|evaluate|create
+[유형별 규칙]
+- short_answer / multiple_choice: answer_phrase(짧은 정답) 필수, answer_outline은 []
+- essay_short / essay_long: answer_outline(핵심 요지 2~5개) 필수, answer_phrase는 null 가능
+- question_type_hint는 {types} 중 하나를 골고루 배분
+- question_angle은 {angles} 중 하나 (후보마다 다양하게)
+- 서로 다른 concept, 서로 다른 angle
 
 [chunk id 목록]
 {chunk_id_list}
@@ -198,10 +210,12 @@ class ExamGenerationService:
   "candidates": [
     {{
       "concept": "핵심 개념",
-      "answer_phrase": "정답 후보",
+      "answer_phrase": "짧은 정답 또는 null",
+      "answer_outline": ["요지1", "요지2"],
       "evidence_chunk_id": "uuid",
       "evidence_text": "근거 문장",
-      "question_type_hint": "short_answer",
+      "question_type_hint": "essay_short",
+      "question_angle": "definition",
       "bloom_level": "understand"
     }}
   ]
@@ -231,10 +245,12 @@ class ExamGenerationService:
                     AnswerCandidate(
                         candidate_id=f"cand_{idx}_{uuid.uuid4().hex[:8]}",
                         concept=payload.concept,
-                        answer_phrase=payload.answer_phrase,
+                        answer_phrase=(payload.answer_phrase or "").strip(),
+                        answer_outline=payload.answer_outline,
                         evidence_chunk_id=chunk_uuid,
                         evidence_text=payload.evidence_text,
                         question_type_hint=payload.question_type_hint,
+                        question_angle=payload.question_angle,
                         bloom_level=payload.bloom_level,
                     )
                 )
@@ -285,6 +301,32 @@ class ExamGenerationService:
             lines.append(f"{idx}. stem: {stem} | concept: {concepts} | answer: {answer}")
         return "\n\n이미 생성된 문제(동일·유사 개념 금지):\n" + "\n".join(lines)
 
+    @staticmethod
+    def _build_answer_instructions(
+        question_type: str,
+        candidate: AnswerCandidate,
+    ) -> tuple[str, str]:
+        """(answer 규칙, JSON answer 예시) 반환."""
+        if is_essay_type(question_type):
+            outline_text = "\n".join(f"  - {p}" for p in candidate.answer_outline)
+            min_sent = "3~5문장" if question_type == "essay_short" else "5~10문장"
+            rules = f"""[서술형 정답 규칙]
+- answer는 answer_outline을 {min_sent} 모범답으로 전개
+- 개념명 한 줄만 쓰지 말 것
+- outline 각 요지를 answer에 반드시 반영
+[answer_outline]
+{outline_text}"""
+            example = '"answer": "outline을 전개한 모범답 전체 (여러 문장)"'
+            return rules, example
+
+        phrase = candidate.answer_phrase or candidate.concept
+        rules = f"""[단답/객관식 정답 규칙]
+- answer는 answer_phrase와 일치: {phrase}
+- stem은 짧은 답을 요구하는 형태 (한 줄 답 가능)
+- "설명하고 논하시오"처럼 긴 서술을 요구하지 말 것"""
+        example = f'"answer": "{phrase}"'
+        return rules, example
+
     @classmethod
     async def generate_one_question(
         cls,
@@ -301,6 +343,12 @@ class ExamGenerationService:
     ) -> GeneratedQuestionPayload:
         context = cls.format_chunks_for_prompt(chunks)
         chunk_ids = [str(c.chunk_id) for c in chunks]
+        angle_desc = ANGLE_LABELS.get(
+            target_candidate.question_angle, target_candidate.question_angle
+        )
+        answer_rules, answer_example = cls._build_answer_instructions(
+            question_type, target_candidate
+        )
 
         style_section = ""
         if style_profile:
@@ -315,34 +363,36 @@ class ExamGenerationService:
         retry_section = f"\n\n[이전 생성 실패 사유]\n{retry_reason}" if retry_reason else ""
         avoid = cls._format_previous_questions(previous_questions)
 
+        essay_stem_rules = ""
+        if is_essay_type(question_type):
+            essay_stem_rules = """
+- stem은 서술형: 비교·설명·적용·분석 등 구체적 과제를 명시
+- "~란 무엇인가?"만 묻고 끝내지 말 것
+- 정답이 한 단어/명사구만 되는 stem 금지"""
+
         system_prompt = (
             "당신은 대학 강의자료에 근거해 시험 문제를 만드는 출제 전문가입니다. "
-            "지정된 핵심 개념과 정답 후보만 사용하고, JSON만 출력하세요."
+            "지정된 유형·개념·출제 각도에 맞게 JSON만 출력하세요."
         )
-        user_prompt = f"""지정된 정답 후보를 기반으로 시험 문제 1개를 생성하세요.
+        user_prompt = f"""지정된 정답 후보와 출제 각도로 시험 문제 1개를 생성하세요.
 
 [필수 규칙]
-- 이번 문항은 아래 핵심 개념·정답 후보(answer_phrase)를 기반으로 생성
-- 제공된 원문 근거(evidence_text)를 벗어난 내용 추가 금지
-- 이미 생성된 문제와 동일·유사 개념 반복 금지
-- 문장 표현만 바꾼 문제 금지
-- 정답(answer)은 answer_phrase와 일치해야 함
-
-[정답 후보]
 - concept: {target_candidate.concept}
-- answer_phrase: {target_candidate.answer_phrase}
-- evidence_text: {target_candidate.evidence_text}
-- bloom_level: {target_candidate.bloom_level or 'understand'}
+- 출제 각도(question_angle): {target_candidate.question_angle} — {angle_desc}
+- evidence_text 근거를 벗어난 내용 추가 금지
+- 이미 생성된 문제와 동일·유사 개념/각도 반복 금지
+{answer_rules}
+{essay_stem_rules}
 
 [요구사항]
 - 문제 번호: {question_number}
 - 문제 유형: {question_type} ({TYPE_LABELS.get(question_type, question_type)})
 - 난이도: {request.difficulty}
+- bloom_level: {target_candidate.bloom_level or 'understand'}
 - 객관식이면 보기 4개(A~D), 정답 1개
-- concepts 필드에 concept 반영 (snake_case 1~3개)
 {style_section}{avoid}{retry_section}
 
-[참고 chunks — chunk_id={target_candidate.evidence_chunk_id} 중심]
+[참고 chunks]
 {context}
 
 [출력 JSON]
@@ -352,7 +402,7 @@ class ExamGenerationService:
   "difficulty": "{request.difficulty}",
   "bloom_level": "{target_candidate.bloom_level or 'understand'}",
   "choices": [{{"label":"A","text":"...","isAnswer":false}}] 또는 null,
-  "answer": "{target_candidate.answer_phrase}",
+  {answer_example},
   "explanation": "해설",
   "concepts": ["concept_tag"]
 }}
@@ -410,7 +460,11 @@ chunk ids: {", ".join(chunk_ids)}"""
 
         for attempt in range(max_retries):
             candidate = select_candidate_for_question(
-                candidates, state.used_candidate_ids, state.chunk_usage_count
+                candidates,
+                state.used_candidate_ids,
+                state.chunk_usage_count,
+                question_type,
+                state.used_angles,
             )
             if candidate is None:
                 logger.warning("문항 %d: 사용 가능한 후보 없음", question_number)
@@ -487,20 +541,24 @@ chunk ids: {", ".join(chunk_ids)}"""
                 key = str(chunk.chunk_id)
                 state.chunk_usage_count[key] = state.chunk_usage_count.get(key, 0) + 1
             state.used_candidate_ids.add(candidate.candidate_id)
+            state.used_angles.add(candidate.question_angle)
 
             record = GeneratedQuestionRecord(
                 stem=payload.stem,
                 answer=payload.answer,
                 concepts=payload.concepts or [candidate.concept],
+                question_angle=candidate.question_angle,
                 stem_embedding=stem_emb,
                 concept_embeddings=[concept_emb] if concept_emb else None,
             )
             state.generated_questions.append(record)
 
             logger.info(
-                "문항 %d 생성 성공: concept=%s chunks=%s retries=%d",
+                "문항 %d 생성 성공: concept=%s angle=%s type=%s chunks=%s retries=%d",
                 question_number,
                 candidate.concept[:50],
+                candidate.question_angle,
+                question_type,
                 [str(c.chunk_id) for c in selected_chunks],
                 attempt,
             )
