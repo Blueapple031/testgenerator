@@ -29,7 +29,7 @@ class GeneratedExam(Base):
     job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("exam_generation_job.id"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
-    pdf_minio_key: Mapped[str | None] = mapped_column(String(500))
+    export_minio_key: Mapped[str | None] = mapped_column(String(500))  # 선택적 HTML PDF export 캐시
     question_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

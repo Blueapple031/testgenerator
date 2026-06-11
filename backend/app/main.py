@@ -4,12 +4,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.infra import minio_client
 from app.routers import auth, documents, exams, jobs, learning, solve, workspaces
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # TODO: 임베딩 모델 로딩, MinIO 버킷 초기화 등 startup 로직
+    # MinIO 버킷 초기화 (없으면 생성)
+    await minio_client.ensure_bucket()
+    # TODO: 임베딩 모델 로딩 등 추가 startup 로직
     yield
     # shutdown
 

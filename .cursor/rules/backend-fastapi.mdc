@@ -59,7 +59,7 @@ async def stream_job_status(job_id: str):
 | rag_service | pgvector 검색 + reranker |
 | exam_style_service | 족보 → 출제 스타일 프로필 분석 |
 | exam_generation_service | LLM 문제 생성 (스타일 프로필 반영) |
-| latex_pdf_service | JSON → LaTeX → xelatex → PDF |
+| exam_export_service | 선택적 HTML → PDF export (고도화, MVP는 브라우저 인쇄) |
 | learning_service | 규칙 기반 취약 개념 분석 |
 | kt_service | 규칙 기반 숙련도, BKT, pyKT 실험 |
 

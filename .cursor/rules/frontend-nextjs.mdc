@@ -26,6 +26,7 @@ app/results/[examId]/   # 결과 분석
 - `QuestionEditor`: 생성 문제 개별 수정·삭제·재생성
 - `QuestionSolver` + `TimerDisplay`: Web Worker 기반 풀이 타이머
 - `ProgressStream`: SSE `useSSE` 훅으로 실시간 진행 상태
+- `ExamPrintView`: print stylesheet 기반 브라우저 인쇄/저장용 레이아웃
 - `WeakConceptChart` / `MasteryDashboard`: KT 기반 취약 개념과 개념별 숙련도 표시
 
 ## 커스텀 훅

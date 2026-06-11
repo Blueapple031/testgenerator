@@ -16,14 +16,14 @@ alwaysApply: true
 - **PDF 추출**: PyMuPDF (fitz), OCR fallback (Upstage)
 - **임베딩**: sentence-transformers (로컬) 또는 OpenAI (EMBEDDING_PROVIDER 환경변수로 전환)
 - **LLM**: OpenAI / Claude (문제 생성)
-- **PDF 생성**: xelatex (LaTeX 기반)
+- **문제집 출력**: JSON 웹 렌더링 (정본), 브라우저 인쇄, 선택적 HTML→PDF export (고도화)
 - **인프라**: Mac mini (Apple Silicon) + Docker Compose, 외부 클라우드 없음
 
 ## 핵심 파이프라인
 
 1. PDF 업로드 → MinIO 저장 → PyMuPDF 추출 → chunking → embedding → pgvector 저장
 2. 족보 업로드 → LLM 출제 스타일 분석 → exam_style_profile 저장
-3. 문제 생성 요청 → RAG 검색 → (족보 스타일 토글 ON 시 프로필 주입) → LLM 생성 → JSON 검증 → LaTeX PDF
+3. 문제 생성 요청 → RAG 검색 → (족보 스타일 토글 ON 시 프로필 주입) → LLM 생성 → JSON 검증 → DB 저장 → 웹 렌더링
 4. 온라인 풀이 → 시간 측정 → 풀이 이벤트 로그 → 규칙 기반 취약 개념 분석 → BKT → pyKT 실험 → 개인화 추천
 
 ## 문서 유형 구분

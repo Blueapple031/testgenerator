@@ -26,3 +26,7 @@ class TocEntry(BaseModel):
     level: int
     title: str
     page_number: int
+
+
+class DocumentDownloadResponse(BaseModel):
+    url: str

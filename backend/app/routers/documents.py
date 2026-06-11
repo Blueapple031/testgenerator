@@ -1,33 +1,76 @@
-from fastapi import APIRouter
+import uuid
+
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.dependencies import get_current_user
+from app.infra import minio_client
+from app.models.user import User
+from app.schemas.document import (
+    DocumentDownloadResponse,
+    DocumentResponse,
+    DocumentUploadResponse,
+)
+from app.services.document_service import DocumentService
 
 router = APIRouter()
 
 
-@router.post("")
-async def upload_document():
+@router.post("", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
+async def upload_document(
+    file: UploadFile = File(...),
+    document_type: str = Form(...),
+    workspace_id: uuid.UUID | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """PDF 업로드 (type: lecture / past_exam)"""
-    raise NotImplementedError
+    document = await DocumentService.upload(
+        db, user.id, file, document_type, workspace_id
+    )
+    return document
 
 
-@router.get("")
-async def list_documents():
+@router.get("", response_model=list[DocumentResponse])
+async def list_documents(
+    document_type: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """문서 목록 (강의자료·족보 필터)"""
-    raise NotImplementedError
+    return await DocumentService.list(db, user.id, document_type)
 
 
-@router.get("/{document_id}")
-async def get_document(document_id: str):
+@router.get("/{document_id}", response_model=DocumentResponse)
+async def get_document(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """문서 처리 상태 조회"""
-    raise NotImplementedError
+    return await DocumentService.get(db, user.id, document_id)
+
+
+@router.get("/{document_id}/download", response_model=DocumentDownloadResponse)
+async def download_document(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """원본 PDF presigned 다운로드 URL 발급"""
+    document = await DocumentService.get(db, user.id, document_id)
+    url = await minio_client.get_presigned_url(document.minio_key)
+    return DocumentDownloadResponse(url=url)
 
 
 @router.get("/{document_id}/toc")
-async def get_document_toc(document_id: str):
-    """PDF 목차 조회 (시험 범위 선택용)"""
+async def get_document_toc(document_id: uuid.UUID):
+    """PDF 목차 조회 (시험 범위 선택용) — Phase 8에서 구현"""
     raise NotImplementedError
 
 
 @router.post("/{document_id}/search")
-async def search_document(document_id: str):
-    """RAG 검색 테스트"""
+async def search_document(document_id: uuid.UUID):
+    """RAG 검색 테스트 — Phase 3에서 구현"""
     raise NotImplementedError

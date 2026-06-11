@@ -31,10 +31,6 @@ class Settings(BaseSettings):
     OCR_ENABLED: bool = True
     UPSTAGE_API_KEY: str = ""
 
-    # LaTeX
-    LATEX_BIN: str = "/usr/bin/xelatex"
-    LATEX_FONT_PATH: str = "/usr/share/fonts/noto-cjk"
-
     # Limits
     EXAM_MAX_UPLOAD_BYTES: int = 52_428_800  # 50MB
     EXAM_CHUNK_SIZE: int = 800

@@ -17,7 +17,7 @@ alwaysApply: false
 | exam_style_profile | 족보 분석 결과: 유형·난이도·Bloom 분포 |
 | document_chunk | chunk 본문, 페이지, embedding (pgvector) |
 | exam_generation_job | 비동기 생성 Job |
-| generated_exam | 시험 메타 + PDF 위치 |
+| generated_exam | 시험 메타 (선택적 export PDF 캐시 키) |
 | generated_question | 문제·답안·해설·출처 (수정 이력) |
 | question_concept | 문제-개념 다대다 연결 |
 | user_answer | 풀이 기록 (response_time 포함) |
@@ -29,7 +29,7 @@ alwaysApply: false
 ## Job 상태 머신
 
 문서: `UPLOADED → EXTRACTING → INDEXING → READY` (실패 시 `FAILED`)
-시험: `PENDING → GENERATING → RENDERING → COMPLETED` (실패 시 `FAILED`)
+시험: `PENDING → GENERATING → FINALIZING → COMPLETED` (실패 시 `FAILED`)
 
 ## 벡터 검색
 

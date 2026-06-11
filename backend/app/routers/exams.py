@@ -9,9 +9,9 @@ async def get_exam(exam_id: str):
     raise NotImplementedError
 
 
-@router.get("/{exam_id}/download")
-async def download_exam_pdf(exam_id: str):
-    """PDF 다운로드"""
+@router.get("/{exam_id}/export")
+async def export_exam_pdf(exam_id: str):
+    """선택적 PDF보내기 (고도화). MVP는 웹 렌더링 + 브라우저 인쇄 사용."""
     raise NotImplementedError
 
 
@@ -33,7 +33,7 @@ async def delete_question(exam_id: str, question_id: str):
     raise NotImplementedError
 
 
-@router.post("/{exam_id}/rebuild-pdf")
-async def rebuild_pdf(exam_id: str):
-    """편집 후 PDF 재생성"""
+@router.post("/{exam_id}/export")
+async def trigger_exam_export(exam_id: str):
+    """편집 후 PDF보내기 재생성 (고도화, HTML 기반 export)"""
     raise NotImplementedError
