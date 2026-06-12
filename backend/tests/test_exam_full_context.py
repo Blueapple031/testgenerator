@@ -35,3 +35,28 @@ def test_generation_mode_full_context_alias():
         generation_mode="full",
     )
     assert req.generation_mode == "full_context"
+
+
+def test_generation_mode_pdf_direct_alias():
+    from app.schemas.exam import ExamGenerationRequest
+
+    req = ExamGenerationRequest(
+        document_ids=["00000000-0000-0000-0000-000000000001"],
+        generation_mode="baseline",
+    )
+    assert req.generation_mode == "pdf_direct"
+
+
+def test_type_mix_instruction():
+    from app.schemas.exam import ExamGenerationRequest
+    from app.services.exam_batch_prompt import type_mix_instruction
+
+    req = ExamGenerationRequest(
+        document_ids=["00000000-0000-0000-0000-000000000001"],
+        question_count=3,
+        question_types=["short_answer", "essay_short"],
+    )
+    text = type_mix_instruction(req)
+    assert "1번" in text
+    assert "short_answer" in text
+    assert "essay_short" in text

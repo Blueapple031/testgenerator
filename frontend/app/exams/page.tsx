@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { api, type ExamListItem } from "@/lib/api";
+import { formatTokenUsageShort } from "@/lib/tokenUsage";
 
 function formatDate(iso: string): string {
   try {
@@ -95,17 +96,27 @@ export default function ExamsPage() {
             <li key={exam.id}>
               <Link
                 href={`/exams/${exam.id}`}
-                className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-primary-300"
+                className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-primary-300"
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-gray-900">
-                    {exam.title}
-                  </p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-medium text-gray-900">
+                      {exam.title}
+                    </p>
+                    {exam.token_usage && (
+                      <span
+                        className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                        title={`입력 ${exam.token_usage.prompt_tokens.toLocaleString()} · 출력 ${exam.token_usage.completion_tokens.toLocaleString()}`}
+                      >
+                        {formatTokenUsageShort(exam.token_usage)}
+                      </span>
+                    )}
+                  </div>
                   <p className="mt-0.5 text-xs text-gray-400">
                     {exam.question_count}문항 · {formatDate(exam.created_at)}
                   </p>
                 </div>
-                <span className="ml-3 shrink-0 text-xs text-primary-600">보기 →</span>
+                <span className="shrink-0 text-xs text-primary-600">보기 →</span>
               </Link>
             </li>
           ))}

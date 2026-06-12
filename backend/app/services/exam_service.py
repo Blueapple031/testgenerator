@@ -6,29 +6,41 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.infra.usage_meter import parse_token_usage
 from app.models.concept import QuestionConcept
 from app.models.exam import ExamGenerationJob, GeneratedExam, GeneratedQuestion
-from app.schemas.exam import ExamListItem, ExamResponse, QuestionResponse
+from app.schemas.exam import ExamListItem, ExamResponse, QuestionResponse, TokenUsageSummary
+
+
+def _token_usage_from_job(job: ExamGenerationJob | None) -> TokenUsageSummary | None:
+    if job is None:
+        return None
+    raw = parse_token_usage((job.options or {}).get("token_usage"))
+    if raw is None:
+        return None
+    return TokenUsageSummary(**raw)
 
 
 class ExamService:
     @staticmethod
     async def list_exams(db: AsyncSession, user_id: uuid.UUID) -> list[ExamListItem]:
         stmt = (
-            select(GeneratedExam)
+            select(GeneratedExam, ExamGenerationJob)
+            .join(ExamGenerationJob, GeneratedExam.job_id == ExamGenerationJob.id)
             .where(GeneratedExam.user_id == user_id)
             .order_by(GeneratedExam.created_at.desc())
         )
         result = await db.execute(stmt)
-        exams = result.scalars().all()
+        rows = result.all()
         return [
             ExamListItem(
                 id=exam.id,
                 title=exam.title,
                 question_count=exam.question_count,
                 created_at=exam.created_at,
+                token_usage=_token_usage_from_job(job),
             )
-            for exam in exams
+            for exam, job in rows
         ]
 
     @staticmethod
@@ -38,17 +50,20 @@ class ExamService:
         exam_id: uuid.UUID,
     ) -> ExamResponse:
         result = await db.execute(
-            select(GeneratedExam).where(
+            select(GeneratedExam, ExamGenerationJob)
+            .join(ExamGenerationJob, GeneratedExam.job_id == ExamGenerationJob.id)
+            .where(
                 GeneratedExam.id == exam_id,
                 GeneratedExam.user_id == user_id,
             )
         )
-        exam = result.scalar_one_or_none()
-        if exam is None:
+        row = result.one_or_none()
+        if row is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="시험을 찾을 수 없습니다.",
             )
+        exam, job = row
 
         questions_result = await db.execute(
             select(GeneratedQuestion)
@@ -62,14 +77,15 @@ class ExamService:
             concept_result = await db.execute(
                 select(QuestionConcept).where(QuestionConcept.question_id.in_(question_ids))
             )
-            for row in concept_result.scalars().all():
-                concepts_by_question[row.question_id].append(row.concept)
+            for concept_row in concept_result.scalars().all():
+                concepts_by_question[concept_row.question_id].append(concept_row.concept)
 
         return ExamResponse(
             id=exam.id,
             title=exam.title,
             question_count=exam.question_count,
             created_at=exam.created_at,
+            token_usage=_token_usage_from_job(job),
             questions=[
                 QuestionResponse(
                     id=q.id,

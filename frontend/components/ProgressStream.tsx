@@ -1,6 +1,10 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 import { useJobStream } from "@/hooks/useSSE";
+import type { JobStreamEvent } from "@/lib/api";
+import { formatTokenUsageDetail } from "@/lib/tokenUsage";
 
 const STAGE_LABELS: Record<string, string> = {
   PENDING: "대기 중",
@@ -17,11 +21,28 @@ interface ProgressStreamProps {
 }
 
 export default function ProgressStream({ jobId, onComplete, onFailed }: ProgressStreamProps) {
-  const { event, connected, error } = useJobStream(jobId, { onComplete, onFailed });
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleComplete = (examId: string, event: JobStreamEvent) => {
+    if (redirectTimerRef.current) return;
+    redirectTimerRef.current = setTimeout(() => onComplete(examId), 3500);
+  };
+
+  const { event, connected, error } = useJobStream(jobId, {
+    onComplete: handleComplete,
+    onFailed,
+  });
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+    };
+  }, []);
 
   const progress = event?.progress ?? 0;
   const stage = event?.stage ?? "PENDING";
   const message = event?.message ?? "준비 중...";
+  const tokenUsage = event?.token_usage;
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -47,6 +68,14 @@ export default function ProgressStream({ jobId, onComplete, onFailed }: Progress
       </div>
 
       <p className="mt-3 text-sm text-gray-600">{message}</p>
+
+      {stage === "COMPLETED" && tokenUsage && (
+        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <p className="text-xs font-semibold text-emerald-800">토큰 사용량</p>
+          <p className="mt-1 text-sm text-emerald-900">{formatTokenUsageDetail(tokenUsage)}</p>
+          <p className="mt-2 text-xs text-emerald-700">잠시 후 결과 페이지로 이동합니다...</p>
+        </div>
+      )}
 
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 

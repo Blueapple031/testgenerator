@@ -90,6 +90,7 @@ async def stream_job(
                     progress=status_resp.progress,
                     message=status_resp.message,
                     exam_id=status_resp.exam_id,
+                    token_usage=status_resp.token_usage,
                 )
                 yield f"data: {event.model_dump_json()}\n\n"
                 last_signature = signature

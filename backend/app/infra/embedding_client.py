@@ -31,6 +31,9 @@ async def _openai_embeddings(texts: list[str]) -> list[list[float]]:
         model=settings.OPENAI_EMBEDDING_MODEL,
         input=texts,
     )
+    from app.infra.usage_meter import record_embedding_usage
+
+    record_embedding_usage(response)
     # OpenAI는 입력 순서를 보장하지만 index로 한 번 더 정렬해 안전하게 반환한다.
     ordered = sorted(response.data, key=lambda item: item.index)
     return [item.embedding for item in ordered]

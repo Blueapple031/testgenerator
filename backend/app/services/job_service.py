@@ -51,12 +51,18 @@ class JobService:
             )
 
         exam_id = await JobService._exam_id_for_job(db, job_id)
+        token_usage = None
+        if isinstance(job.options, dict):
+            raw = job.options.get("token_usage")
+            if isinstance(raw, dict):
+                token_usage = raw
         return JobStatusResponse(
             id=job.id,
             status=job.status,
             progress=job.progress,
             message=job.message,
             exam_id=exam_id,
+            token_usage=token_usage,
             created_at=job.created_at,
         )
 
@@ -112,6 +118,7 @@ class JobService:
         message: str | None,
         *,
         completed: bool = False,
+        token_usage: dict[str, int] | None = None,
     ) -> None:
         """별도 세션으로 Job 진행률만 갱신 (시험 생성 트랜잭션과 분리)."""
         from app.database import async_session
@@ -123,6 +130,10 @@ class JobService:
             job.status = status
             job.progress = min(max(progress, 0), 100)
             job.message = message
+            if token_usage is not None:
+                opts = dict(job.options or {})
+                opts["token_usage"] = token_usage
+                job.options = opts
             if completed:
                 job.completed_at = datetime.now(UTC)
             await db.commit()

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.infra.embedding_client import get_embeddings
 from app.infra.llm_client import openai_client
+from app.infra.usage_meter import record_chat_usage
 from app.models.concept import QuestionConcept
 from app.models.document import StudyDocument
 from app.models.exam import ExamGenerationJob, GeneratedExam, GeneratedQuestion
@@ -279,6 +280,7 @@ class ExamGenerationService:
             response_format={"type": "json_object"},
             temperature=settings.EXAM_GEN_BASE_TEMPERATURE,
         )
+        record_chat_usage(response)
         raw = response.choices[0].message.content or "{}"
         try:
             data = json.loads(raw)
@@ -345,6 +347,7 @@ class ExamGenerationService:
             response_format={"type": "json_object"},
             temperature=settings.EXAM_GEN_RETRY_TEMPERATURE,
         )
+        record_chat_usage(response)
         raw = response.choices[0].message.content or "{}"
         try:
             data = json.loads(raw)
@@ -548,6 +551,7 @@ chunk ids: {", ".join(chunk_ids)}"""
             response_format={"type": "json_object"},
             temperature=temperature or settings.EXAM_GEN_BASE_TEMPERATURE,
         )
+        record_chat_usage(response)
         raw = response.choices[0].message.content or "{}"
         try:
             data = json.loads(raw)
@@ -704,12 +708,15 @@ chunk ids: {", ".join(chunk_ids)}"""
 
     @classmethod
     async def run_job(cls, db: AsyncSession, job: ExamGenerationJob) -> uuid.UUID:
-        """generation_mode에 따라 RAG 파이프라인 또는 FULL_CONTEXT 배치 생성."""
+        """generation_mode에 따라 RAG / FULL_CONTEXT / PDF_DIRECT 파이프라인 실행."""
         from app.services.exam_full_context_service import ExamFullContextService
+        from app.services.exam_pdf_direct_service import ExamPdfDirectService
 
         request = ExamGenerationRequest.model_validate(job.options or {})
         if request.generation_mode == "full_context":
             return await ExamFullContextService.run_job(db, job)
+        if request.generation_mode == "pdf_direct":
+            return await ExamPdfDirectService.run_job(db, job)
         return await cls._run_rag_job(db, job)
 
     @classmethod

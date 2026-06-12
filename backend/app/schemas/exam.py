@@ -11,7 +11,7 @@ ALLOWED_QUESTION_TYPES = {
     "essay_long",
 }
 ALLOWED_DIFFICULTIES = {"easy", "medium", "hard"}
-GenerationMode = Literal["rag", "full_context"]
+GenerationMode = Literal["rag", "full_context", "pdf_direct"]
 
 
 class ExamGenerationRequest(BaseModel):
@@ -26,7 +26,9 @@ class ExamGenerationRequest(BaseModel):
     page_range_start: int | None = Field(default=None, ge=1)
     page_range_end: int | None = Field(default=None, ge=1)
     toc_ids: list[UUID] | None = None
-    # rag: RAG+후보 파이프라인(기본) | full_context: PDF 전문 → LLM 배치 (벤치마크)
+    # rag: RAG+후보 파이프라인(기본)
+    # full_context: PyMuPDF 추출 텍스트 → LLM 배치
+    # pdf_direct: PDF 원본 → OpenAI API 직접 입력 baseline
     generation_mode: GenerationMode = "rag"
 
     @field_validator("generation_mode", mode="before")
@@ -35,9 +37,13 @@ class ExamGenerationRequest(BaseModel):
         if value is None:
             return "rag"
         lowered = str(value).lower().strip()
-        if lowered in ("rag", "full_context", "full", "fullcontext"):
-            return "full_context" if lowered != "rag" else "rag"
-        raise ValueError("generation_mode는 rag 또는 full_context 여야 합니다.")
+        if lowered == "rag":
+            return "rag"
+        if lowered in ("pdf_direct", "pdf", "direct", "pdf_baseline", "baseline", "native_pdf"):
+            return "pdf_direct"
+        if lowered in ("full_context", "full", "fullcontext"):
+            return "full_context"
+        raise ValueError("generation_mode는 rag, full_context, pdf_direct 중 하나여야 합니다.")
 
     @field_validator("question_types")
     @classmethod
@@ -55,6 +61,15 @@ class ExamGenerationRequest(BaseModel):
         return value
 
 
+class TokenUsageSummary(BaseModel):
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    embedding_tokens: int = 0
+    llm_calls: int = 0
+    embedding_calls: int = 0
+
+
 class JobCreateResponse(BaseModel):
     job_id: UUID
     status: str
@@ -66,6 +81,7 @@ class JobStatusResponse(BaseModel):
     progress: int
     message: str | None
     exam_id: UUID | None = None
+    token_usage: dict[str, int] | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -76,6 +92,7 @@ class JobStreamEvent(BaseModel):
     progress: int
     message: str | None = None
     exam_id: UUID | None = None
+    token_usage: dict[str, int] | None = None
 
 
 class QuestionResponse(BaseModel):
@@ -98,6 +115,7 @@ class ExamListItem(BaseModel):
     title: str
     question_count: int
     created_at: datetime
+    token_usage: TokenUsageSummary | None = None
 
     model_config = {"from_attributes": True}
 
@@ -108,6 +126,7 @@ class ExamResponse(BaseModel):
     question_count: int
     questions: list[QuestionResponse] = []
     created_at: datetime
+    token_usage: TokenUsageSummary | None = None
 
     model_config = {"from_attributes": True}
 

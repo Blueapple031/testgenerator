@@ -49,7 +49,7 @@ export default function ExamGenerationForm({
     (d) => d.document_type === "lecture" && d.status === "READY"
   );
 
-  const [generationMode, setGenerationMode] = useState<"rag" | "full_context">("rag");
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("rag");
 
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [title, setTitle] = useState("");
@@ -83,6 +83,24 @@ export default function ExamGenerationForm({
   };
 
   const selectableLectures = generationMode === "rag" ? ragReadyLectures : readyLectures;
+
+  const pipelineOptions: { value: GenerationMode; label: string; hint: string }[] = [
+    {
+      value: "rag",
+      label: "RAG (기본)",
+      hint: "인덱싱 chunk 검색 + 후보별 생성",
+    },
+    {
+      value: "full_context",
+      label: "FULL_CONTEXT",
+      hint: "PyMuPDF 추출 텍스트 → LLM 1회",
+    },
+    {
+      value: "pdf_direct",
+      label: "PDF_DIRECT (baseline)",
+      hint: "PDF 원본을 OpenAI API에 직접 입력",
+    },
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -181,16 +199,11 @@ export default function ExamGenerationForm({
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-gray-900">생성 파이프라인</h2>
         <p className="mt-1 text-xs text-gray-500">
-          벤치마크 비교용. FULL_CONTEXT는 PDF에서 추출한 전체 텍스트를 LLM 1회 호출로
-          문제 생성합니다 (OpenAI에 PDF 원본 바이트를 보내지 않음).
+          벤치마크 비교용. FULL_CONTEXT는 추출 텍스트, PDF_DIRECT는 PDF 원본을 API에
+          직접 넣는 baseline입니다.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {(
-            [
-              { value: "rag" as GenerationMode, label: "RAG (기본)" },
-              { value: "full_context" as GenerationMode, label: "FULL_CONTEXT (벤치마크)" },
-            ] as const
-          ).map((opt) => (
+          {pipelineOptions.map((opt) => (
             <label
               key={opt.value}
               className={`cursor-pointer rounded-lg border px-3 py-2 text-sm ${
@@ -198,6 +211,7 @@ export default function ExamGenerationForm({
                   ? "border-primary-500 bg-primary-50 text-primary-700"
                   : "border-gray-200 text-gray-600 hover:bg-gray-50"
               }`}
+              title={opt.hint}
             >
               <input
                 type="radio"
@@ -211,6 +225,9 @@ export default function ExamGenerationForm({
             </label>
           ))}
         </div>
+        <p className="mt-2 text-xs text-gray-400">
+          {pipelineOptions.find((o) => o.value === generationMode)?.hint}
+        </p>
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">

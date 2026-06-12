@@ -118,6 +118,7 @@ export interface GeneratedExam {
   question_count: number;
   questions: GeneratedQuestion[];
   created_at: string;
+  token_usage?: TokenUsageSummary | null;
 }
 
 export interface ExamListItem {
@@ -125,6 +126,7 @@ export interface ExamListItem {
   title: string;
   question_count: number;
   created_at: string;
+  token_usage?: TokenUsageSummary | null;
 }
 
 export interface ExamStyleProfile {
@@ -151,7 +153,7 @@ export interface ExamStyleAnalyzeRequest {
 
 export type Difficulty = "easy" | "medium" | "hard";
 
-export type GenerationMode = "rag" | "full_context";
+export type GenerationMode = "rag" | "full_context" | "pdf_direct";
 
 export interface ExamGenerationRequest {
   document_ids: string[];
@@ -162,7 +164,7 @@ export interface ExamGenerationRequest {
   exam_style_profile_id?: string;
   page_range_start?: number;
   page_range_end?: number;
-  /** rag(기본): RAG+후보 파이프라인 | full_context: PDF 전문 LLM 배치 */
+  /** rag(기본): RAG+후보 | full_context: 추출 텍스트 배치 | pdf_direct: PDF 원본 API 입력 */
   generation_mode?: GenerationMode;
 }
 
@@ -171,11 +173,21 @@ export interface JobCreateResponse {
   status: string;
 }
 
+export interface TokenUsageSummary {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  embedding_tokens?: number;
+  llm_calls?: number;
+  embedding_calls?: number;
+}
+
 export interface JobStreamEvent {
   stage: string;
   progress: number;
   message: string | null;
   exam_id: string | null;
+  token_usage?: TokenUsageSummary | null;
 }
 
 export interface JobStatusResponse {
@@ -184,5 +196,6 @@ export interface JobStatusResponse {
   progress: number;
   message: string | null;
   exam_id: string | null;
+  token_usage?: TokenUsageSummary | null;
   created_at: string;
 }

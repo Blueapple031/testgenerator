@@ -2,6 +2,7 @@
 
 import QuestionFeedbackPanel from "@/components/QuestionFeedbackPanel";
 import type { GeneratedExam, GeneratedQuestion, QuestionFeedback, QuestionType } from "@/lib/api";
+import { formatTokenUsageDetail } from "@/lib/tokenUsage";
 
 const TYPE_LABELS: Record<QuestionType, string> = {
   multiple_choice: "객관식",
@@ -117,10 +118,25 @@ export default function ExamPreview({
   return (
     <div className="exam-preview space-y-8">
       <header className="exam-header border-b border-gray-200 pb-4 text-center">
-        <h1 className="text-xl font-bold text-gray-900">{exam.title}</h1>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <h1 className="text-xl font-bold text-gray-900">{exam.title}</h1>
+          {exam.token_usage && (
+            <span
+              className="no-print rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700"
+              title={formatTokenUsageDetail(exam.token_usage)}
+            >
+              {exam.token_usage.total_tokens.toLocaleString()} tokens
+            </span>
+          )}
+        </div>
         <p className="mt-1 text-sm text-gray-500">
           총 {exam.question_count}문항
         </p>
+        {exam.token_usage && (
+          <p className="no-print mt-1 text-xs text-emerald-700">
+            {formatTokenUsageDetail(exam.token_usage)}
+          </p>
+        )}
       </header>
 
       <div className="space-y-8">

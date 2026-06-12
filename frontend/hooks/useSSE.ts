@@ -9,7 +9,7 @@ const MAX_RECONNECT = 5;
 
 interface UseJobStreamOptions {
   enabled?: boolean;
-  onComplete?: (examId: string) => void;
+  onComplete?: (examId: string, event: JobStreamEvent) => void;
   onFailed?: (message: string | null) => void;
 }
 
@@ -52,7 +52,7 @@ export function useJobStream(jobId: string | null, options: UseJobStreamOptions 
           if (data.stage === "COMPLETED" && data.exam_id) {
             es?.close();
             setConnected(false);
-            callbacksRef.current.onComplete?.(data.exam_id);
+            callbacksRef.current.onComplete?.(data.exam_id, data);
           } else if (data.stage === "FAILED") {
             es?.close();
             setConnected(false);
