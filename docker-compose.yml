@@ -34,6 +34,7 @@ services:
         condition: service_started
     volumes:
       - embedding_cache:/app/models
+      - ./backend/pilot_accounts.yaml:/app/pilot_accounts.yaml:ro
     restart: unless-stopped
 
   postgres:

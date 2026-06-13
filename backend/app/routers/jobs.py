@@ -13,6 +13,7 @@ from app.models.user import User
 from app.schemas.exam import ExamGenerationRequest, JobCreateResponse, JobStatusResponse, JobStreamEvent
 from app.services.exam_generation_service import ExamGenerationService
 from app.services.job_service import JobService
+from app.services.pilot_account_service import PilotAccountService
 from app.workers.exam_generation import generate_exam
 
 router = APIRouter()
@@ -39,6 +40,8 @@ async def create_job(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="OPENAI_API_KEY가 설정되지 않았습니다.",
         )
+
+    PilotAccountService.ensure_quota_available(user)
 
     await ExamGenerationService.validate_documents(
         db,

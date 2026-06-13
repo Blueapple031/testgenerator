@@ -77,5 +77,13 @@ class Settings(BaseSettings):
     EXAM_CHUNK_SIZE: int = 800
     EXAM_CHUNK_OVERLAP: int = 120
 
+    # Pilot auth
+    PILOT_AUTH_ENABLED: bool = True
+    PILOT_ADMIN_KEY: str = ""
+    PILOT_ACCOUNTS_PATH: str = "pilot_accounts.yaml"
+    PILOT_ACCOUNTS_SYNC_ON_STARTUP: bool = False
+    JWT_EXPIRE_HOURS: int = 168  # 7 days
+    AUTH_COOKIE_NAME: str = "access_token"
+
 
 settings = Settings()

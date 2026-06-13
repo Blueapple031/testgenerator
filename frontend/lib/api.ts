@@ -199,3 +199,13 @@ export interface JobStatusResponse {
   token_usage?: TokenUsageSummary | null;
   created_at: string;
 }
+
+export interface UserMe {
+  id: string;
+  display_name: string;
+  tokens_used: number;
+  token_quota: number | null;
+  tokens_remaining: number | null;
+  is_active: boolean;
+  created_at: string;
+}

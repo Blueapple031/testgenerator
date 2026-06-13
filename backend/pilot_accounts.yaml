@@ -1,0 +1,13 @@
+# 파일럿 배포용 접속 계정 설정
+# PILOT_ACCOUNTS_SYNC_ON_STARTUP=true 로 설정하면 서버 시작 시 DB와 동기화됩니다.
+# 또는 POST /api/admin/pilot/sync (X-Admin-Key 헤더) 로 수동 동기화할 수 있습니다.
+
+accounts:
+  - code: "friend-alice"
+    display_name: "Alice"
+    token_quota: 500000   # 생략 시 무제한
+    is_active: true
+
+  - code: "friend-bob"
+    display_name: "Bob"
+    is_active: true

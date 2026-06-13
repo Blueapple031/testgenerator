@@ -8,6 +8,7 @@ from app.infra.usage_meter import get_usage, start_usage_tracking
 from app.models.exam import ExamGenerationJob
 from app.services.exam_generation_service import ExamGenerationService
 from app.services.job_service import JobService
+from app.services.pilot_account_service import PilotAccountService
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ async def generate_exam(job_id: uuid.UUID) -> None:
             usage = get_usage()
             usage_data = usage.to_dict()
             completion_message = f"완료 · {usage.format_summary()}"
+            await PilotAccountService.record_token_usage(db, job.user_id, usage_data.get("total_tokens", 0))
             await JobService.update_progress_by_id(
                 job_id,
                 "COMPLETED",
